@@ -7,7 +7,7 @@
 // the run; assets that fail simply keep their previous snapshot as the most
 // recent row.
 import { prisma } from "./db";
-import { coingecko, resolveCoingeckoIdBySymbol } from "./adapters/coingecko";
+import { coingecko } from "./adapters/coingecko";
 import { geckoterminal } from "./adapters/geckoterminal";
 import { defillama } from "./adapters/defillama";
 import { equityPrices } from "./adapters/stocks";
@@ -15,12 +15,14 @@ import { premiumBps } from "./metrics/premium";
 import { estimateSlippageBps } from "./metrics/slippage";
 import { isUsMarketOpen } from "./metrics/market-hours";
 import { refreshNews } from "./news";
+import { evaluateAlerts } from "./alerts";
 
 export interface SnapshotRunResult {
   takenAt: Date;
   assetsSnapshotted: number;
   assetsFailed: number;
   issuersSnapshotted: number;
+  alertsFired: number;
   errors: string[];
 }
 
@@ -34,14 +36,22 @@ export async function runSnapshot(): Promise<SnapshotRunResult> {
     include: { deployments: true },
   });
 
-  // Resolve missing CoinGecko ids once per run (cheap: category list is cached).
-  for (const asset of assets) {
-    if (!asset.coingeckoId) {
-      const id = await resolveCoingeckoIdBySymbol(asset.symbol);
-      if (id) {
-        await prisma.asset.update({ where: { id: asset.id }, data: { coingeckoId: id } });
-        asset.coingeckoId = id;
+  // Resolve missing CoinGecko ids with ONE category-list call per run (a
+  // per-asset lookup would multiply retry/backoff time when the API is down).
+  if (assets.some((a) => !a.coingeckoId)) {
+    try {
+      const listed = await coingecko.listTokenizedStocks();
+      const bySymbol = new Map(listed.data.map((t) => [t.symbol.toUpperCase(), t.coingeckoId]));
+      for (const asset of assets) {
+        if (asset.coingeckoId) continue;
+        const id = bySymbol.get(asset.symbol.toUpperCase());
+        if (id) {
+          await prisma.asset.update({ where: { id: asset.id }, data: { coingeckoId: id } });
+          asset.coingeckoId = id;
+        }
       }
+    } catch (e) {
+      errors.push(`coingecko id resolution: ${e instanceof Error ? e.message : e}`);
     }
   }
 
@@ -204,5 +214,15 @@ export async function runSnapshot(): Promise<SnapshotRunResult> {
     errors.push(`news: ${e instanceof Error ? e.message : e}`);
   }
 
-  return { takenAt, assetsSnapshotted: ok, assetsFailed: failed, issuersSnapshotted, errors };
+  // Alert evaluation runs last so it sees this run's snapshots.
+  let alertsFired = 0;
+  try {
+    const alerts = await evaluateAlerts();
+    alertsFired = alerts.fired;
+    errors.push(...alerts.errors.map((e) => `alerts: ${e}`));
+  } catch (e) {
+    errors.push(`alerts: ${e instanceof Error ? e.message : e}`);
+  }
+
+  return { takenAt, assetsSnapshotted: ok, assetsFailed: failed, issuersSnapshotted, alertsFired, errors };
 }

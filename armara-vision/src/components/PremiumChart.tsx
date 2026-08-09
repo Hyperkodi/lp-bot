@@ -1,15 +1,17 @@
 "use client";
 
 // Premium/discount history (bps) from our hourly snapshots, with ±flag
-// threshold lines. Server component passes the series in as props.
+// threshold lines and market-hours shading: faint columns mark periods when
+// NYSE was closed, where divergence is price discovery rather than
+// arbitrageable spread. Server component passes the series in as props.
 import { useEffect, useRef } from "react";
-import { createChart, LineSeries, type UTCTimestamp } from "lightweight-charts";
+import { createChart, HistogramSeries, LineSeries, type UTCTimestamp } from "lightweight-charts";
 
 export default function PremiumChart({
   points,
   flagBps,
 }: {
-  points: { time: number; value: number }[];
+  points: { time: number; value: number; marketOpen: boolean }[];
   flagBps: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -25,6 +27,19 @@ export default function PremiumChart({
       height: 180,
       autoSize: true,
     });
+
+    // Closed-market shading: full-height translucent columns on a hidden scale.
+    const shading = chart.addSeries(HistogramSeries, {
+      priceScaleId: "shade",
+      color: "rgba(100, 116, 139, 0.12)",
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    chart.priceScale("shade").applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
+    shading.setData(
+      points.map((p) => ({ time: p.time as UTCTimestamp, value: p.marketOpen ? 0 : 1 })),
+    );
+
     const series = chart.addSeries(LineSeries, { color: "#e8a33d", lineWidth: 2, priceLineVisible: false });
     series.setData(points.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
     series.createPriceLine({ price: flagBps, color: "#f87171", lineStyle: 2, lineWidth: 1, title: `+${flagBps}` });
@@ -41,5 +56,12 @@ export default function PremiumChart({
       </p>
     );
   }
-  return <div ref={ref} className="h-[180px] w-full" />;
+  return (
+    <div>
+      <div ref={ref} className="h-[180px] w-full" />
+      <p className="px-3 py-1.5 text-[10px] text-terminal-muted">
+        shaded columns = NYSE closed (off-hours price discovery) · red dashes = ±{flagBps}bps flag
+      </p>
+    </div>
+  );
 }

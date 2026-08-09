@@ -1,13 +1,45 @@
 // Market overview: totals, issuer breakdown, chain footprint, dislocations.
 import Link from "next/link";
+import { prisma } from "@/lib/db";
 import { getAssetsWithLatestSnapshot } from "@/lib/queries";
-import { fmtUsd, fmtBps, fmtDateTime } from "@/lib/format";
+import { fmtUsd, fmtBps, fmtPct, fmtDateTime } from "@/lib/format";
 import { PREMIUM_FLAG_BPS } from "@/lib/metrics/premium";
+import Sparkline from "@/components/Sparkline";
 
 export const dynamic = "force-dynamic";
 
 export default async function Overview() {
   const assets = await getAssetsWithLatestSnapshot();
+
+  // Issuer time series from our own hourly snapshots (sparklines + deltas).
+  const issuerHistory = await prisma.issuerSnapshot.findMany({
+    where: { takenAt: { gte: new Date(Date.now() - 30 * 24 * 3_600_000) } },
+    orderBy: { takenAt: "asc" },
+  });
+  const seriesByIssuer = new Map<string, { t: number; v: number }[]>();
+  const totalByTime = new Map<number, number>();
+  for (const s of issuerHistory) {
+    if (s.totalValueUsd == null) continue;
+    const t = s.takenAt.getTime();
+    const arr = seriesByIssuer.get(s.issuerId) ?? [];
+    arr.push({ t, v: s.totalValueUsd });
+    seriesByIssuer.set(s.issuerId, arr);
+    totalByTime.set(t, (totalByTime.get(t) ?? 0) + s.totalValueUsd);
+  }
+  const totalSeries = [...totalByTime.entries()].sort((a, b) => a[0] - b[0]);
+  const changeOver = (hours: number): number | null => {
+    if (totalSeries.length < 2) return null;
+    const [, latest] = totalSeries[totalSeries.length - 1];
+    const cutoff = totalSeries[totalSeries.length - 1][0] - hours * 3_600_000;
+    const past = [...totalSeries].reverse().find(([t]) => t <= cutoff);
+    if (!past || past[1] === 0) return null;
+    return (latest / past[1] - 1) * 100;
+  };
+  const deltas: [string, number | null][] = [
+    ["24h", changeOver(24)],
+    ["7d", changeOver(7 * 24)],
+    ["30d", changeOver(30 * 24)],
+  ];
 
   const latest = (a: (typeof assets)[number]) => a.snapshots[0];
   const totalValue = assets.reduce((s, a) => s + (latest(a)?.marketCapUsd ?? 0), 0);
@@ -50,6 +82,24 @@ export default async function Overview() {
         {stat(`Dislocations > ±${PREMIUM_FLAG_BPS}bps`, String(dislocated.length))}
       </div>
 
+      <div className="mt-3 flex flex-wrap items-center gap-4 border border-terminal-border bg-terminal-panel px-4 py-2 text-xs">
+        <span className="text-[10px] uppercase tracking-wider text-terminal-muted">Distributed value Δ</span>
+        {deltas.map(([label, v]) => (
+          <span key={label}>
+            <span className="text-terminal-muted">{label} </span>
+            <span className={v == null ? "text-terminal-muted" : v >= 0 ? "text-terminal-green" : "text-terminal-red"}>
+              {fmtPct(v)}
+            </span>
+          </span>
+        ))}
+        <span className="ml-auto">
+          <Sparkline values={totalSeries.map(([, v]) => v)} width={160} />
+        </span>
+        {totalSeries.length < 2 && (
+          <span className="text-[10px] text-terminal-muted">trend builds from hourly snapshots</span>
+        )}
+      </div>
+
       <div className="mt-6 grid gap-6 md:grid-cols-2">
         <section className="border border-terminal-border bg-terminal-panel">
           <h2 className="border-b border-terminal-border px-4 py-2 text-xs uppercase tracking-wider text-terminal-muted">
@@ -66,6 +116,9 @@ export default async function Overview() {
                     <td className="px-4 py-2 text-right">{fmtUsd(r.value || null, { compact: true })}</td>
                     <td className="px-4 py-2 text-right text-terminal-muted">
                       {totalValue > 0 ? `${((r.value / totalValue) * 100).toFixed(1)}%` : "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <Sparkline values={(seriesByIssuer.get(id) ?? []).map((p) => p.v)} width={80} height={20} />
                     </td>
                   </tr>
                 ))}

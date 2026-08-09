@@ -45,7 +45,8 @@ model Asset {
   assetType        String  @default("stock") // "stock" | "etf" | "fund"
   coingeckoId      String? // resolved/verified at runtime against the tokenized-stock category if null
   active           Boolean @default(true)
-  listedAt         DateTime? // first-listed date if known (drives "new asset" alerts)
+  listedAt         DateTime? // first-listed date if known
+  createdAt        DateTime @default(now()) // row creation — drives "new asset" alerts
 
   issuer      Issuer            @relation(fields: [issuerId], references: [id])
   deployments AssetDeployment[]

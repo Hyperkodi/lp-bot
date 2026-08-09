@@ -1,8 +1,8 @@
 // Asset screener: every tracked tokenized stock with the premium/discount
 // column front and center. Filters/sort via query params (server-rendered).
 import Link from "next/link";
-import { getAssetsWithLatestSnapshot } from "@/lib/queries";
-import { fmtUsd, fmtBps, fmtDateTime } from "@/lib/format";
+import { getAssetsWithLatestSnapshot, getChangePct } from "@/lib/queries";
+import { fmtUsd, fmtBps, fmtPct, fmtDateTime } from "@/lib/format";
 import { PREMIUM_FLAG_BPS } from "@/lib/metrics/premium";
 import { prisma } from "@/lib/db";
 
@@ -30,6 +30,12 @@ export default async function Screener({ searchParams }: { searchParams: Promise
   const issuers = await prisma.issuer.findMany({ orderBy: { name: "asc" } });
   const sectors = [...new Set(assets.map((a) => a.sector).filter((s): s is string => !!s))].sort();
   const chains = [...new Set(assets.flatMap((a) => a.deployments.map((d) => d.chain)))].sort();
+
+  const changes = new Map(
+    await Promise.all(
+      assets.map(async (a) => [a.id, await getChangePct(a.id, 24)] as const),
+    ),
+  );
 
   let rows: Row[] = assets.map((asset) => {
     const snap = asset.snapshots[0];
@@ -93,6 +99,7 @@ export default async function Screener({ searchParams }: { searchParams: Promise
               <th className="px-3 py-2">Issuer</th>
               <th className="px-3 py-2">Chains</th>
               <th className="px-3 py-2 text-right">Token px</th>
+              <th className="px-3 py-2 text-right">24h Δ</th>
               <th className="px-3 py-2 text-right">Equity px</th>
               <th className="px-3 py-2 text-right">{sortLink("premium", "Prem/Disc")}</th>
               <th className="px-3 py-2 text-right">{sortLink("mcap", "Mkt cap")}</th>
@@ -118,6 +125,14 @@ export default async function Screener({ searchParams }: { searchParams: Promise
                     {asset.deployments.map((d) => d.chain).join(", ")}
                   </td>
                   <td className="px-3 py-2 text-right">{fmtUsd(snap?.tokenPriceUsd)}</td>
+                  {(() => {
+                    const chg = changes.get(asset.id) ?? null;
+                    return (
+                      <td className={`px-3 py-2 text-right ${chg == null ? "text-terminal-muted" : chg >= 0 ? "text-terminal-green" : "text-terminal-red"}`}>
+                        {fmtPct(chg)}
+                      </td>
+                    );
+                  })()}
                   <td className="px-3 py-2 text-right">{fmtUsd(snap?.underlyingPriceUsd)}</td>
                   <td
                     className={`px-3 py-2 text-right ${

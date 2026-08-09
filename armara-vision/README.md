@@ -7,12 +7,20 @@ premium/discount vs the underlying share price as the headline metric.
 
 ## Status
 
-Steps 1–4 of 6 in place: scaffold, schema, seed data, adapters, snapshot
-cron, market overview, asset screener, asset detail (DexScreener-style
-OHLCV chart + wallet trading via embedded Jupiter Terminal on Solana), and
-the news panel with an "Upcoming tokenizations" section. Remaining: risk
-monitor board, user-defined alert evaluation, market-hours chart shading,
-EVM swap widget.
+All six build steps in place: scaffold/schema/seed, adapters + snapshot
+cron, market overview + screener, asset detail (DexScreener-style OHLCV
+chart with market-hours-shaded premium history + wallet trading via
+embedded Jupiter Terminal on Solana), risk monitor (dislocations,
+tracking-error leaderboard, stale-price and concentration flags), alert
+engine + rules UI, flows page (net mint/redeem by issuer, chain volume
+share, whale-watch placeholder), and the news panel with an "Upcoming
+tokenizations" section.
+
+Known gaps (data, not code): holder counts/concentration and whale
+transfers await the Dune adapter; EVM swap widget is a link-out; live
+provider behavior needs a networked environment (this repo was built in a
+sandbox where external APIs are blocked — fallback paths are what's
+exercised).
 
 ## Quick start
 

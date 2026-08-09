@@ -36,6 +36,7 @@ export default async function AssetDetail({ params }: { params: Promise<{ id: st
   const premiumPoints = history.map((s) => ({
     time: Math.floor(s.takenAt.getTime() / 1000),
     value: s.premiumBps as number,
+    marketOpen: s.marketOpen,
   }));
   const tePct = trackingErrorPct(
     history
