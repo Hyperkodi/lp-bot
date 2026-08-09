@@ -18,6 +18,7 @@ export interface PoolData {
   network: string; // GeckoTerminal network slug
   dexName: string | null;
   baseTokenSymbol: string | null;
+  baseTokenAddress: string | null; // token mint/contract — used to resolve deployments and power the trade widget
   priceUsd: number | null;
   liquidityUsd: number | null;
   volume24hUsd: number | null;

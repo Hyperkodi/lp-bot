@@ -1,0 +1,37 @@
+[
+  {
+    "source": "Seed (example)",
+    "title": "xStocks live on Solana: Backed brings 60+ tokenized US equities to Kraken and Bybit",
+    "url": "https://xstocks.com/#launch",
+    "publishedAt": "2025-06-30",
+    "issuerTags": "xstocks"
+  },
+  {
+    "source": "Seed (example)",
+    "title": "Ondo Global Markets launches 100+ tokenized stocks and ETFs with 1:1 backing",
+    "url": "https://ondo.finance/#gm-launch",
+    "publishedAt": "2025-09-03",
+    "issuerTags": "ondo"
+  },
+  {
+    "source": "Seed (example)",
+    "title": "Robinhood announces stock tokens for EU users, plans dedicated Robinhood Chain",
+    "url": "https://robinhood.com/#eu-tokens",
+    "publishedAt": "2025-06-30",
+    "issuerTags": "robinhood-eu,upcoming"
+  },
+  {
+    "source": "Seed (example)",
+    "title": "Backed plans multichain expansion for xStocks beyond Solana",
+    "url": "https://xstocks.com/#multichain",
+    "publishedAt": "2025-10-15",
+    "issuerTags": "xstocks,upcoming"
+  },
+  {
+    "source": "Seed (example)",
+    "title": "Dinari to expand dShares access pending US broker-dealer approvals",
+    "url": "https://dinari.com/#us-expansion",
+    "publishedAt": "2025-11-05",
+    "issuerTags": "dinari,upcoming"
+  }
+]

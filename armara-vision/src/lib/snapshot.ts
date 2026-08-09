@@ -14,6 +14,7 @@ import { equityPrices } from "./adapters/stocks";
 import { premiumBps } from "./metrics/premium";
 import { estimateSlippageBps } from "./metrics/slippage";
 import { isUsMarketOpen } from "./metrics/market-hours";
+import { refreshNews } from "./news";
 
 export interface SnapshotRunResult {
   takenAt: Date;
@@ -193,6 +194,14 @@ export async function runSnapshot(): Promise<SnapshotRunResult> {
     } catch (e) {
       errors.push(`issuer ${issuer.id}: ${e instanceof Error ? e.message : e}`);
     }
+  }
+
+  // News refresh piggybacks on the hourly run; failures never affect snapshots.
+  try {
+    const news = await refreshNews();
+    errors.push(...news.errors.map((e) => `news: ${e}`));
+  } catch (e) {
+    errors.push(`news: ${e instanceof Error ? e.message : e}`);
   }
 
   return { takenAt, assetsSnapshotted: ok, assetsFailed: failed, issuersSnapshotted, errors };

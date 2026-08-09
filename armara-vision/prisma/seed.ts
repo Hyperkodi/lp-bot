@@ -6,6 +6,7 @@ import { PrismaClient } from "@prisma/client";
 import issuers from "./seed-data/issuers.json";
 import assets from "./seed-data/assets.json";
 import events from "./seed-data/events.json";
+import news from "./seed-data/news.json";
 
 const prisma = new PrismaClient();
 
@@ -84,6 +85,17 @@ async function main() {
         data: { ...e, date: new Date(e.date) },
       });
     }
+  }
+
+  // Placeholder news items (clearly labeled "Seed (example)") so the news
+  // panel renders before the RSS cron has run; live items replace them in
+  // prominence by recency.
+  for (const n of news) {
+    await prisma.newsItem.upsert({
+      where: { url: n.url },
+      update: {},
+      create: { ...n, publishedAt: new Date(n.publishedAt) },
+    });
   }
 
   // A couple of sensible default alert rules so the alerts UI isn't empty.

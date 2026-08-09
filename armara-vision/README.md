@@ -7,10 +7,12 @@ premium/discount vs the underlying share price as the headline metric.
 
 ## Status
 
-Build step 1–2 of 6 complete: scaffold, schema, seed data, data-source
-adapters, metrics library, and the hourly snapshot cron. Dashboard UI
-(market overview, screener, asset detail, risk monitor, alerts, news) lands
-in steps 3–6.
+Steps 1–4 of 6 in place: scaffold, schema, seed data, adapters, snapshot
+cron, market overview, asset screener, asset detail (DexScreener-style
+OHLCV chart + wallet trading via embedded Jupiter Terminal on Solana), and
+the news panel with an "Upcoming tokenizations" section. Remaining: risk
+monitor board, user-defined alert evaluation, market-hours chart shading,
+EVM swap widget.
 
 ## Quick start
 
