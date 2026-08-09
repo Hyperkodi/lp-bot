@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+/* Terminal design tokens — Bloomberg-serious, not retail-crypto. */
+@theme {
+  --color-terminal-bg: #0a0e14;
+  --color-terminal-panel: #10151f;
+  --color-terminal-border: #1c2433;
+  --color-terminal-text: #c8d1dc;
+  --color-terminal-muted: #64748b;
+  --color-terminal-amber: #e8a33d;
+  --color-terminal-green: #34d399;
+  --color-terminal-red: #f87171;
+  --font-mono: "SF Mono", "Cascadia Mono", "JetBrains Mono", ui-monospace, monospace;
+}
+
+body {
+  background: var(--color-terminal-bg);
+  color: var(--color-terminal-text);
+}

@@ -1,0 +1,256 @@
+// Armara Vision — database schema
+//
+// SQLite by default for zero-config local dev. To move to Postgres, change
+// provider to "postgresql" and set DATABASE_URL accordingly — the schema is
+// written to be compatible with both (no SQLite-only types).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Reference data (seeded, slowly changing)
+// ---------------------------------------------------------------------------
+
+// A tokenized-equity issuer program: Ondo Global Markets, xStocks (Backed /
+// Kraken), bStocks (Binance), Dinari, Robinhood EU, Securitize, ...
+model Issuer {
+  id            String  @id // slug: "ondo", "xstocks", "bstocks", "dinari", "robinhood-eu", "securitize"
+  name          String
+  tokenPattern  String? // human hint for symbol convention: "TICKERon", "TICKERx", "bTICKER", "TICKER.d"
+  defiLlamaSlug String? // protocol slug on DefiLlama for TVL, null if not listed
+  website       String?
+
+  assets    Asset[]
+  structure StructureProfile?
+  snapshots IssuerSnapshot[]
+  events    EventLog[]
+}
+
+// One tokenized stock/ETF as issued by one issuer (AAPLx and AAPLon are two
+// separate Asset rows sharing underlyingTicker "AAPL").
+model Asset {
+  id               String  @id // slug: "xstocks-aapl", "ondo-aapl"
+  symbol           String // on-chain token symbol: "AAPLx", "AAPLon"
+  name             String
+  issuerId         String
+  underlyingTicker String // "AAPL" — the off-chain equity/ETF ticker
+  underlyingName   String
+  sector           String? // GICS-style sector of the underlying, used by screener filters
+  assetType        String  @default("stock") // "stock" | "etf" | "fund"
+  coingeckoId      String? // resolved/verified at runtime against the tokenized-stock category if null
+  active           Boolean @default(true)
+  listedAt         DateTime? // first-listed date if known (drives "new asset" alerts)
+
+  issuer      Issuer            @relation(fields: [issuerId], references: [id])
+  deployments AssetDeployment[]
+  snapshots   AssetSnapshot[]
+  poolSnaps   PoolSnapshot[]
+  supplyEvents SupplyEvent[]
+
+  @@unique([issuerId, underlyingTicker])
+  @@index([underlyingTicker])
+}
+
+// Per-chain contract deployment of an asset (one Asset can live on several
+// chains: Solana, Ethereum, BNB, Arbitrum, Base).
+model AssetDeployment {
+  id                   Int     @id @default(autoincrement())
+  assetId              String
+  chain                String // "solana" | "ethereum" | "bnb" | "arbitrum" | "base"
+  address              String? // token mint / contract address (null until verified)
+  decimals             Int?
+  geckoTerminalNetwork String? // GeckoTerminal network slug ("solana", "eth", "bsc", "arbitrum", "base")
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@unique([assetId, chain])
+  @@index([chain])
+}
+
+// The "structure card": legal/regulatory facts that no API provides.
+// Issuer-level because the framework is set per program (all xStocks share
+// Backed's Jersey structure); per-asset exceptions go in Asset-level notes
+// or a future override table.
+model StructureProfile {
+  issuerId       String @id
+  legalEntity    String // e.g. "Backed Assets (JE) Limited"
+  custodian      String? // e.g. "regulated Swiss custodian (InCore Bank)"
+  jurisdiction   String // e.g. "Jersey / Switzerland (DLT Act)" vs "US broker-dealer"
+  backingModel   String // "custodied_1to1" | "synthetic" | "derivative"
+  dividendPolicy String // "reinvested" | "distributed" | "none"
+  redemption     String // free-text: who can redeem, minimums, settlement time
+  geoRestrictions String // free-text: excluded jurisdictions
+  notes          String?
+
+  issuer Issuer @relation(fields: [issuerId], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Time series (written by the hourly snapshot cron — our own history)
+// ---------------------------------------------------------------------------
+
+// Hourly per-asset snapshot: the source for sparklines, premium/discount
+// history, tracking error, and graceful degradation when live APIs are down.
+model AssetSnapshot {
+  id                 Int      @id @default(autoincrement())
+  assetId            String
+  takenAt            DateTime
+  tokenPriceUsd      Float?
+  underlyingPriceUsd Float? // last trade of the underlying equity (may be stale off-hours)
+  premiumBps         Float? // (token/underlying - 1) * 10_000, computed at snapshot time
+  marketOpen         Boolean  @default(false) // was NYSE/Nasdaq open at takenAt (premium off-hours is price discovery, not dislocation)
+  marketCapUsd       Float?
+  volume24hUsd       Float? // total (CEX + DEX) reported volume
+  dexVolume24hUsd    Float? // on-chain portion from GeckoTerminal
+  liquidityUsd       Float? // sum of pool reserves across venues
+  slippage100kBps    Float? // estimated execution slippage on a $100k order
+  slippage1mBps      Float? // ... and on a $1M order
+  totalSupply        Float? // circulating token supply (mint/redeem proxy via deltas)
+  holderCount        Int?
+  top10HolderPct     Float? // holder concentration, when an indexer provides it
+  source             String   @default("live") // "live" | "seed" | "backfill"
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@index([assetId, takenAt])
+  @@index([takenAt])
+}
+
+// Per-pool snapshot (GeckoTerminal): liquidity breakdown by venue on the
+// asset detail page, and chain-migration analytics.
+model PoolSnapshot {
+  id           Int      @id @default(autoincrement())
+  assetId      String
+  chain        String
+  poolAddress  String
+  dexName      String? // "raydium", "orca", "uniswap-v3", ...
+  takenAt      DateTime
+  liquidityUsd Float?
+  volume24hUsd Float?
+  priceUsd     Float?
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@index([assetId, takenAt])
+  @@index([poolAddress, takenAt])
+}
+
+// Hourly per-issuer rollup: market-share charts and TVL trend without
+// re-aggregating asset snapshots at query time.
+model IssuerSnapshot {
+  id            Int      @id @default(autoincrement())
+  issuerId      String
+  takenAt       DateTime
+  totalValueUsd Float? // sum of asset market caps (distributed value)
+  defiLlamaTvl  Float? // issuer protocol TVL as reported by DefiLlama
+  assetCount    Int?
+  holderCount   Int?
+
+  issuer Issuer @relation(fields: [issuerId], references: [id])
+
+  @@index([issuerId, takenAt])
+}
+
+// Supply changes (mint/redeem proxy). "inferred" rows are computed from
+// consecutive AssetSnapshot.totalSupply deltas; "onchain" rows come from RPC
+// transfer logs once the whale-watch feed is wired.
+model SupplyEvent {
+  id          Int      @id @default(autoincrement())
+  assetId     String
+  chain       String?
+  occurredAt  DateTime
+  deltaSupply Float // positive = mint / inflow, negative = burn / outflow
+  deltaUsd    Float?
+  kind        String   @default("inferred") // "inferred" | "onchain"
+  txHash      String?
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@index([assetId, occurredAt])
+}
+
+// ---------------------------------------------------------------------------
+// Alerts
+// ---------------------------------------------------------------------------
+
+// User-defined alert rule. Scope by asset, issuer, or global (both null).
+model AlertRule {
+  id        Int      @id @default(autoincrement())
+  name      String
+  kind      String // "premium_bps" | "liquidity_drop_pct" | "supply_change_pct" | "new_asset" | "stale_price"
+  assetId   String? // null = applies to all assets (optionally within issuer)
+  issuerId  String?
+  threshold Float? // meaning depends on kind (bps, %, minutes); null for "new_asset"
+  enabled   Boolean  @default(true)
+  channel   String   @default("inapp") // "inapp" now; "email" | "webhook" later
+  createdAt DateTime @default(now())
+
+  firings AlertEvent[]
+}
+
+model AlertEvent {
+  id           Int      @id @default(autoincrement())
+  ruleId       Int
+  firedAt      DateTime @default(now())
+  assetId      String? // which asset tripped it
+  value        Float? // observed value at firing time
+  message      String
+  acknowledged Boolean  @default(false)
+
+  rule AlertRule @relation(fields: [ruleId], references: [id])
+
+  @@index([firedAt])
+}
+
+// ---------------------------------------------------------------------------
+// News & events
+// ---------------------------------------------------------------------------
+
+// Aggregated RSS items (Ledger Insights, Blockworks, CoinDesk, ...).
+model NewsItem {
+  id          Int      @id @default(autoincrement())
+  source      String
+  title       String
+  url         String   @unique
+  publishedAt DateTime
+  fetchedAt   DateTime @default(now())
+  issuerTags  String? // comma-separated issuer slugs matched by keyword
+
+  @@index([publishedAt])
+}
+
+// Manual event log for regulatory / market-structure milestones (seeded).
+model EventLog {
+  id          Int      @id @default(autoincrement())
+  date        DateTime
+  title       String
+  description String
+  kind        String   @default("regulatory") // "regulatory" | "listing" | "market" | "other"
+  issuerId    String?
+  url         String?
+
+  issuer Issuer? @relation(fields: [issuerId], references: [id])
+
+  @@index([date])
+}
+
+// ---------------------------------------------------------------------------
+// Infrastructure
+// ---------------------------------------------------------------------------
+
+// Durable server-side response cache (survives serverless cold starts) with
+// per-entry TTL. Backs the in-memory cache in lib/adapters/http.ts.
+model CacheEntry {
+  key       String   @id // "{provider}:{hash of url}"
+  value     String // JSON payload
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+}

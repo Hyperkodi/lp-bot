@@ -1,0 +1,42 @@
+[
+  {
+    "date": "2025-06-30",
+    "title": "xStocks launch on Solana via Kraken and Bybit",
+    "description": "Backed Finance's xStocks suite (60+ tokenized US equities and ETFs) goes live for non-US users on Kraken and Bybit, with freely transferable SPL tokens on Solana and day-one DeFi integrations (Raydium, Jupiter, Kamino).",
+    "kind": "listing",
+    "issuerId": "xstocks",
+    "url": "https://xstocks.com"
+  },
+  {
+    "date": "2025-06-30",
+    "title": "Robinhood announces EU stock tokens on Arbitrum",
+    "description": "Robinhood launches 200+ US stock and ETF tokens for EU customers as derivative-wrapped tokens on Arbitrum, announces plans for its own Robinhood Chain. OpenAI publicly disputes the 'OpenAI token' shortly after — a reminder of disclosure risk in derivative-model tokens.",
+    "kind": "listing",
+    "issuerId": "robinhood-eu",
+    "url": "https://robinhood.com"
+  },
+  {
+    "date": "2025-09-03",
+    "title": "Ondo Global Markets launches 100+ tokenized US stocks and ETFs",
+    "description": "Ondo GM goes live with 1:1 custodied tokenized equities (TICKERon convention) for non-US users, with mint/redeem against underlying shares.",
+    "kind": "listing",
+    "issuerId": "ondo",
+    "url": "https://ondo.finance"
+  },
+  {
+    "date": "2025-07-29",
+    "title": "SEC Project Crypto announced",
+    "description": "SEC chairman announces 'Project Crypto' initiative to modernize securities rules for on-chain markets, including guidance paths for tokenized equities — a key watch item for US-accessible tokenized stocks.",
+    "kind": "regulatory",
+    "issuerId": null,
+    "url": null
+  },
+  {
+    "date": "2025-12-30",
+    "title": "MiCA transition deadlines tighten EU distribution",
+    "description": "EU CASP licensing transition affects distribution of tokenized equity products to EEA retail; issuers relying on prospectus exemptions review their frameworks.",
+    "kind": "regulatory",
+    "issuerId": null,
+    "url": null
+  }
+]

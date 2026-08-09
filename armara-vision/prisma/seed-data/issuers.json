@@ -1,0 +1,104 @@
+[
+  {
+    "id": "xstocks",
+    "name": "xStocks (Backed / Kraken)",
+    "tokenPattern": "TICKERx",
+    "defiLlamaSlug": "backed-finance",
+    "website": "https://xstocks.com",
+    "structure": {
+      "legalEntity": "Backed Assets (JE) Limited",
+      "custodian": "Regulated third-party custodians (incl. InCore Bank AG, Switzerland)",
+      "jurisdiction": "Jersey issuer under Swiss DLT Act framework; EU prospectus-exempt tracker certificates",
+      "backingModel": "custodied_1to1",
+      "dividendPolicy": "reinvested",
+      "redemption": "Qualified/professional investors redeem via Backed at NAV; retail exits via secondary DEX/CEX markets. T+2-style settlement against the underlying.",
+      "geoRestrictions": "Not offered to US persons; additional exclusions incl. UK retail and sanctioned jurisdictions.",
+      "notes": "Distributed on Solana first (Kraken, Bybit, DEXs), expanding multichain. Tracker certificate, not a share: no voting rights."
+    }
+  },
+  {
+    "id": "ondo",
+    "name": "Ondo Global Markets",
+    "tokenPattern": "TICKERon",
+    "defiLlamaSlug": "ondo-finance",
+    "website": "https://ondo.finance",
+    "structure": {
+      "legalEntity": "Ondo Global Markets (Ondo Finance)",
+      "custodian": "US regulated broker-dealer custody for underlying shares",
+      "jurisdiction": "Non-US distribution; underlying held in US market structure",
+      "backingModel": "custodied_1to1",
+      "dividendPolicy": "reinvested",
+      "redemption": "Mint/redeem against underlying via Ondo GM for eligible non-US users; instant on-chain secondary liquidity otherwise.",
+      "geoRestrictions": "US persons excluded; onboarding subject to KYC and jurisdiction screening.",
+      "notes": "Tokens follow the TICKERon convention (e.g. AAPLon). Launched 2025 with 100+ tokenized US stocks and ETFs."
+    }
+  },
+  {
+    "id": "bstocks",
+    "name": "bStocks (Binance / Backed)",
+    "tokenPattern": "bTICKER",
+    "defiLlamaSlug": null,
+    "website": "https://www.binance.com",
+    "structure": {
+      "legalEntity": "Backed Assets (JE) Limited (issuer); distributed via Binance",
+      "custodian": "Regulated third-party custodians (Backed program)",
+      "jurisdiction": "Jersey / Switzerland issuance; Binance distribution terms apply",
+      "backingModel": "custodied_1to1",
+      "dividendPolicy": "reinvested",
+      "redemption": "Primary redemption restricted to qualified participants; secondary liquidity on BNB Chain venues.",
+      "geoRestrictions": "Not offered to US persons; Binance-level jurisdiction restrictions apply.",
+      "notes": "BNB Chain distribution of the Backed program."
+    }
+  },
+  {
+    "id": "dinari",
+    "name": "Dinari dShares",
+    "tokenPattern": "TICKER.d",
+    "defiLlamaSlug": "dinari",
+    "website": "https://dinari.com",
+    "structure": {
+      "legalEntity": "Dinari, Inc. (US); dShares issued by Dinari securities entities",
+      "custodian": "US brokerage custody of underlying shares",
+      "jurisdiction": "US framework; FINRA broker-dealer subsidiary, SEC transfer-agent registration",
+      "backingModel": "custodied_1to1",
+      "dividendPolicy": "distributed",
+      "redemption": "Mint/redeem at market via Dinari platform during US market hours; off-hours orders queued.",
+      "geoRestrictions": "Historically non-US retail; US expansion pending broker-dealer approvals.",
+      "notes": "dShares (TICKER.d) on Arbitrum, Base and other EVM chains. Dividends passed through to holders."
+    }
+  },
+  {
+    "id": "robinhood-eu",
+    "name": "Robinhood EU Stock Tokens",
+    "tokenPattern": "TICKER (Robinhood)",
+    "defiLlamaSlug": null,
+    "website": "https://robinhood.com",
+    "structure": {
+      "legalEntity": "Robinhood Europe UAB (Lithuania)",
+      "custodian": "Underlying exposure held via US institutional counterparties",
+      "jurisdiction": "EU (Lithuanian license, MiCA transition)",
+      "backingModel": "derivative",
+      "dividendPolicy": "distributed",
+      "redemption": "Closed-loop: buy/sell only inside the Robinhood app; tokens not freely transferable on-chain yet.",
+      "geoRestrictions": "EU/EEA customers only.",
+      "notes": "Derivative-wrapped stock tokens on Arbitrum (migrating to Robinhood Chain). Included for market-share tracking; limited on-chain data while closed-loop."
+    }
+  },
+  {
+    "id": "securitize",
+    "name": "Securitize",
+    "tokenPattern": "varies",
+    "defiLlamaSlug": "securitize",
+    "website": "https://securitize.io",
+    "structure": {
+      "legalEntity": "Securitize, Inc. / Securitize Markets LLC",
+      "custodian": "Varies by issuance; institutional fund administrators",
+      "jurisdiction": "US (SEC-registered transfer agent, broker-dealer, ATS)",
+      "backingModel": "custodied_1to1",
+      "dividendPolicy": "distributed",
+      "redemption": "Permissioned mint/redeem for whitelisted investors per issuance docs (e.g. BUIDL-style funds; equity issuances vary).",
+      "geoRestrictions": "Per-issuance investor eligibility (Reg D / Reg S).",
+      "notes": "Primarily tokenized funds and private securities today; tracked here as an issuer of record for RWA equity issuances."
+    }
+  }
+]

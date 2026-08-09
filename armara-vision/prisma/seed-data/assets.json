@@ -1,0 +1,192 @@
+[
+  {
+    "id": "xstocks-aapl", "symbol": "AAPLx", "name": "Apple xStock", "issuerId": "xstocks",
+    "underlyingTicker": "AAPL", "underlyingName": "Apple Inc.", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": "apple-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-tsla", "symbol": "TSLAx", "name": "Tesla xStock", "issuerId": "xstocks",
+    "underlyingTicker": "TSLA", "underlyingName": "Tesla, Inc.", "sector": "Consumer Discretionary", "assetType": "stock",
+    "coingeckoId": "tesla-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-nvda", "symbol": "NVDAx", "name": "NVIDIA xStock", "issuerId": "xstocks",
+    "underlyingTicker": "NVDA", "underlyingName": "NVIDIA Corporation", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": "nvidia-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-msft", "symbol": "MSFTx", "name": "Microsoft xStock", "issuerId": "xstocks",
+    "underlyingTicker": "MSFT", "underlyingName": "Microsoft Corporation", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": "microsoft-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-amzn", "symbol": "AMZNx", "name": "Amazon xStock", "issuerId": "xstocks",
+    "underlyingTicker": "AMZN", "underlyingName": "Amazon.com, Inc.", "sector": "Consumer Discretionary", "assetType": "stock",
+    "coingeckoId": "amazon-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-googl", "symbol": "GOOGLx", "name": "Alphabet xStock", "issuerId": "xstocks",
+    "underlyingTicker": "GOOGL", "underlyingName": "Alphabet Inc.", "sector": "Communication Services", "assetType": "stock",
+    "coingeckoId": "alphabet-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-meta", "symbol": "METAx", "name": "Meta xStock", "issuerId": "xstocks",
+    "underlyingTicker": "META", "underlyingName": "Meta Platforms, Inc.", "sector": "Communication Services", "assetType": "stock",
+    "coingeckoId": "meta-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-spy", "symbol": "SPYx", "name": "SP500 xStock", "issuerId": "xstocks",
+    "underlyingTicker": "SPY", "underlyingName": "SPDR S&P 500 ETF Trust", "sector": "Index / ETF", "assetType": "etf",
+    "coingeckoId": "sp500-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-qqq", "symbol": "QQQx", "name": "Nasdaq xStock", "issuerId": "xstocks",
+    "underlyingTicker": "QQQ", "underlyingName": "Invesco QQQ Trust", "sector": "Index / ETF", "assetType": "etf",
+    "coingeckoId": "nasdaq-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-crcl", "symbol": "CRCLx", "name": "Circle xStock", "issuerId": "xstocks",
+    "underlyingTicker": "CRCL", "underlyingName": "Circle Internet Group, Inc.", "sector": "Financials", "assetType": "stock",
+    "coingeckoId": "circle-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-coin", "symbol": "COINx", "name": "Coinbase xStock", "issuerId": "xstocks",
+    "underlyingTicker": "COIN", "underlyingName": "Coinbase Global, Inc.", "sector": "Financials", "assetType": "stock",
+    "coingeckoId": "coinbase-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-hood", "symbol": "HOODx", "name": "Robinhood xStock", "issuerId": "xstocks",
+    "underlyingTicker": "HOOD", "underlyingName": "Robinhood Markets, Inc.", "sector": "Financials", "assetType": "stock",
+    "coingeckoId": "robinhood-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-mstr", "symbol": "MSTRx", "name": "Strategy xStock", "issuerId": "xstocks",
+    "underlyingTicker": "MSTR", "underlyingName": "Strategy Inc. (MicroStrategy)", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": "microstrategy-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-avgo", "symbol": "AVGOx", "name": "Broadcom xStock", "issuerId": "xstocks",
+    "underlyingTicker": "AVGO", "underlyingName": "Broadcom Inc.", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": "broadcom-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-lly", "symbol": "LLYx", "name": "Eli Lilly xStock", "issuerId": "xstocks",
+    "underlyingTicker": "LLY", "underlyingName": "Eli Lilly and Company", "sector": "Health Care", "assetType": "stock",
+    "coingeckoId": "eli-lilly-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-jpm", "symbol": "JPMx", "name": "JPMorgan xStock", "issuerId": "xstocks",
+    "underlyingTicker": "JPM", "underlyingName": "JPMorgan Chase & Co.", "sector": "Financials", "assetType": "stock",
+    "coingeckoId": "jpmorgan-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-v", "symbol": "Vx", "name": "Visa xStock", "issuerId": "xstocks",
+    "underlyingTicker": "V", "underlyingName": "Visa Inc.", "sector": "Financials", "assetType": "stock",
+    "coingeckoId": "visa-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-wmt", "symbol": "WMTx", "name": "Walmart xStock", "issuerId": "xstocks",
+    "underlyingTicker": "WMT", "underlyingName": "Walmart Inc.", "sector": "Consumer Staples", "assetType": "stock",
+    "coingeckoId": "walmart-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-nflx", "symbol": "NFLXx", "name": "Netflix xStock", "issuerId": "xstocks",
+    "underlyingTicker": "NFLX", "underlyingName": "Netflix, Inc.", "sector": "Communication Services", "assetType": "stock",
+    "coingeckoId": "netflix-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-pltr", "symbol": "PLTRx", "name": "Palantir xStock", "issuerId": "xstocks",
+    "underlyingTicker": "PLTR", "underlyingName": "Palantir Technologies Inc.", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": "palantir-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-gld", "symbol": "GLDx", "name": "Gold xStock", "issuerId": "xstocks",
+    "underlyingTicker": "GLD", "underlyingName": "SPDR Gold Shares", "sector": "Index / ETF", "assetType": "etf",
+    "coingeckoId": "gold-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "xstocks-amd", "symbol": "AMDx", "name": "AMD xStock", "issuerId": "xstocks",
+    "underlyingTicker": "AMD", "underlyingName": "Advanced Micro Devices, Inc.", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": "amd-xstock", "chains": ["solana"]
+  },
+  {
+    "id": "ondo-aapl", "symbol": "AAPLon", "name": "Apple (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "AAPL", "underlyingName": "Apple Inc.", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "ondo-tsla", "symbol": "TSLAon", "name": "Tesla (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "TSLA", "underlyingName": "Tesla, Inc.", "sector": "Consumer Discretionary", "assetType": "stock",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "ondo-nvda", "symbol": "NVDAon", "name": "NVIDIA (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "NVDA", "underlyingName": "NVIDIA Corporation", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "ondo-msft", "symbol": "MSFTon", "name": "Microsoft (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "MSFT", "underlyingName": "Microsoft Corporation", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "ondo-amzn", "symbol": "AMZNon", "name": "Amazon (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "AMZN", "underlyingName": "Amazon.com, Inc.", "sector": "Consumer Discretionary", "assetType": "stock",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "ondo-googl", "symbol": "GOOGLon", "name": "Alphabet (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "GOOGL", "underlyingName": "Alphabet Inc.", "sector": "Communication Services", "assetType": "stock",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "ondo-meta", "symbol": "METAon", "name": "Meta (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "META", "underlyingName": "Meta Platforms, Inc.", "sector": "Communication Services", "assetType": "stock",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "ondo-spy", "symbol": "SPYon", "name": "SPDR S&P 500 (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "SPY", "underlyingName": "SPDR S&P 500 ETF Trust", "sector": "Index / ETF", "assetType": "etf",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "ondo-qqq", "symbol": "QQQon", "name": "Invesco QQQ (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "QQQ", "underlyingName": "Invesco QQQ Trust", "sector": "Index / ETF", "assetType": "etf",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "ondo-crcl", "symbol": "CRCLon", "name": "Circle (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "CRCL", "underlyingName": "Circle Internet Group, Inc.", "sector": "Financials", "assetType": "stock",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "ondo-coin", "symbol": "COINon", "name": "Coinbase (Ondo GM)", "issuerId": "ondo",
+    "underlyingTicker": "COIN", "underlyingName": "Coinbase Global, Inc.", "sector": "Financials", "assetType": "stock",
+    "coingeckoId": null, "chains": ["ethereum", "bnb"]
+  },
+  {
+    "id": "dinari-aapl", "symbol": "AAPL.d", "name": "Apple dShare", "issuerId": "dinari",
+    "underlyingTicker": "AAPL", "underlyingName": "Apple Inc.", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": null, "chains": ["arbitrum", "base"]
+  },
+  {
+    "id": "dinari-tsla", "symbol": "TSLA.d", "name": "Tesla dShare", "issuerId": "dinari",
+    "underlyingTicker": "TSLA", "underlyingName": "Tesla, Inc.", "sector": "Consumer Discretionary", "assetType": "stock",
+    "coingeckoId": null, "chains": ["arbitrum", "base"]
+  },
+  {
+    "id": "dinari-nvda", "symbol": "NVDA.d", "name": "NVIDIA dShare", "issuerId": "dinari",
+    "underlyingTicker": "NVDA", "underlyingName": "NVIDIA Corporation", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": null, "chains": ["arbitrum", "base"]
+  },
+  {
+    "id": "bstocks-tsla", "symbol": "bTSLA", "name": "Tesla bStock", "issuerId": "bstocks",
+    "underlyingTicker": "TSLA", "underlyingName": "Tesla, Inc.", "sector": "Consumer Discretionary", "assetType": "stock",
+    "coingeckoId": null, "chains": ["bnb"]
+  },
+  {
+    "id": "bstocks-mstr", "symbol": "bMSTR", "name": "Strategy bStock", "issuerId": "bstocks",
+    "underlyingTicker": "MSTR", "underlyingName": "Strategy Inc. (MicroStrategy)", "sector": "Information Technology", "assetType": "stock",
+    "coingeckoId": null, "chains": ["bnb"]
+  }
+]
