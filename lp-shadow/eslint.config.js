@@ -81,11 +81,31 @@ export default tseslint.config(
     },
   },
   {
+    // Custody is reachable only from execution. Tests may exercise the public
+    // custody contract, but no other shipping layer can import it.
+    files: ['src/**/*.ts'],
+    ignores: ['src/custody/**/*.ts', 'src/execution/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/custody/*', './custody/*', '../custody/*'],
+              message: 'only src/execution may import src/custody; key material cannot cross layers.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Phase 1 holds no keys. If any of these words ever appear in the source,
     // something has gone very wrong and lint should say so loudly. Applies to
     // scripts/ and test/ too — a key-capable import is no more acceptable in a
     // dev aid than in the loop.
     files: ['src/**/*.ts', 'scripts/**/*.ts', 'test/**/*.ts'],
+    ignores: ['src/custody/**/*.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',
@@ -113,6 +133,7 @@ export default tseslint.config(
     // `await import(...)` (their key-capable variants are still caught by the
     // literal selector in the previous block).
     files: ['src/**/*.ts', 'scripts/**/*.ts'],
+    ignores: ['src/custody/**/*.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',
@@ -130,6 +151,18 @@ export default tseslint.config(
           selector: 'ImportExpression',
           message:
             'dynamic import() bypasses the boundary and no-keys lint rules; use static imports.',
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/custody/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportExpression',
+          message: 'dynamic import() bypasses the boundary rules; use static imports.',
         },
       ],
     },
