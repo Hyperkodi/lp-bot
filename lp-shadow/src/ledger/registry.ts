@@ -13,6 +13,9 @@ import type { Params } from '../types.js';
 export type PoolMode = 'SHADOW' | 'PAUSED' | 'STOPPED';
 export type PoolRole = 'PRIMARY' | 'REFERENCE';
 
+const LEGACY_PROFILE_ID = 'legacy-shadow-profile';
+const LEGACY_PROFILE_VERSION_ID = 'legacy-shadow-profile-v1';
+
 export type ActivePool = {
   managedPoolId: string;
   tenantId: string;
@@ -56,6 +59,34 @@ export async function publishStrategyVersion(
   params: Params,
   note: string,
 ): Promise<{ id: string; version: number }> {
+  // Scratch databases deliberately truncate tables between suites, and older
+  // deployments may begin writing between migration and process restart. Keep
+  // the compatibility stamp self-healing instead of trusting seed state.
+  await prisma.strategyProfile.upsert({
+    where: { id: LEGACY_PROFILE_ID },
+    create: {
+      id: LEGACY_PROFILE_ID,
+      slug: 'legacy-shadow',
+      name: 'Legacy Shadow',
+      description: 'Compatibility profile for the retained Phase 1 shadow engine.',
+    },
+    update: {},
+  });
+  await prisma.strategyProfileVersion.upsert({
+    where: { id: LEGACY_PROFILE_VERSION_ID },
+    create: {
+      id: LEGACY_PROFILE_VERSION_ID,
+      profileId: LEGACY_PROFILE_ID,
+      version: 1,
+      paramsJson: strategyOnly(params) as unknown as InputJsonValue,
+      distributionShape: 'SPOT',
+      defaultBinStepBps: 25,
+      launchGuardHours: 24,
+      note: 'Compatibility stamp for the retained Phase 1 shadow engine.',
+    },
+    update: {},
+  });
+
   const latest = await prisma.strategyVersion.findFirst({
     orderBy: { version: 'desc' },
     select: { id: true, version: true, paramsJson: true },

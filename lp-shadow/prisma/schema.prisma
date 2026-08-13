@@ -26,17 +26,48 @@ datasource db {
 /// the user and hands off via a signed deep link, and this row is upserted from
 /// that payload. The LP module owns no authentication.
 model Tenant {
-  id             String        @id @default(cuid())
+  id             String         @id @default(cuid())
   /// The parent bot's user/account id. Source of truth lives there.
-  externalUserId String        @unique
+  externalUserId String         @unique
   /// The solo chat this tenant was handed off into. Reports and alerts go here.
-  telegramChatId String        @unique
+  telegramChatId String         @unique
   label          String
-  status         String        @default("ACTIVE") // ACTIVE | SUSPENDED
-  createdAt      DateTime      @default(now())
+  status         String         @default("ACTIVE") // ACTIVE | SUSPENDED
+  createdAt      DateTime       @default(now())
   pools          ManagedPool[]
+  projectWallet  ProjectWallet?
 
   @@index([status])
+}
+
+/// A founder-selectable strategy product. Versions are immutable so outcomes
+/// can always be compared without silently mixing parameter sets.
+model StrategyProfile {
+  id          String                   @id @default(cuid())
+  slug        String                   @unique
+  name        String                   @unique
+  description String
+  createdAt   DateTime                 @default(now())
+  versions    StrategyProfileVersion[]
+}
+
+/// One immutable parameter set published for a strategy profile.
+model StrategyProfileVersion {
+  id                String          @id @default(cuid())
+  profileId         String
+  profile           StrategyProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  version           Int
+  paramsJson        Json
+  distributionShape String
+  defaultBinStepBps Int
+  launchGuardHours  Int             @default(24)
+  note              String
+  createdAt         DateTime        @default(now())
+  pools             ManagedPool[]
+  decisions         Decision[]
+
+  @@unique([profileId, version])
+  @@index([profileId])
 }
 
 /// A canonical, versioned parameter set.
@@ -59,13 +90,18 @@ model StrategyVersion {
 
 /// One pool being shadowed for one tenant.
 model ManagedPool {
-  id                String          @id @default(cuid())
-  tenantId          String
-  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  strategyVersionId String
-  strategyVersion   StrategyVersion @relation(fields: [strategyVersionId], references: [id])
-  poolAddress       String
-  label             String
+  id                       String                 @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  strategyVersionId        String
+  strategyVersion          StrategyVersion        @relation(fields: [strategyVersionId], references: [id])
+  /// Product profile used for live management. The fixed default maps legacy
+  /// shadow rows to the migration-created "Legacy Shadow" profile, so every
+  /// historical and future row is stamped while Phase 1 compatibility remains.
+  strategyProfileVersionId String                 @default("legacy-shadow-profile-v1")
+  strategyProfileVersion   StrategyProfileVersion @relation(fields: [strategyProfileVersionId], references: [id])
+  poolAddress              String
+  label                    String
 
   /// Position size. The *strategy* is canonical; the *size* is not — it is the
   /// capital this project would actually deploy, and it changes the answer
@@ -94,17 +130,19 @@ model ManagedPool {
   /// (and its place in the track record) is kept.
   runSeq BigInt @default(0)
 
-  snapshots  Snapshot[]
-  decisions  Decision[]
-  events     VirtualPositionEvent[]
-  benchmarks BenchmarkMark[]
-  replayRuns ReplayRun[]
+  snapshots        Snapshot[]
+  decisions        Decision[]
+  events           VirtualPositionEvent[]
+  benchmarks       BenchmarkMark[]
+  replayRuns       ReplayRun[]
+  executionIntents ExecutionIntent[]
 
   /// One LIVE run per pool per role per tenant (runSeq = 0). Different tenants
   /// may shadow the same pool independently; stopped runs coexist as history.
   @@unique([tenantId, poolAddress, role, runSeq])
   @@index([mode])
   @@index([tenantId])
+  @@index([strategyProfileVersionId])
 }
 
 /// One poll of the pool. Written on every successful tick; never fabricated.
@@ -156,25 +194,169 @@ model Decision {
   /// Stamped per decision so pools can be migrated to a new strategy version
   /// without destroying the track record — any aggregate claim can still be
   /// sliced by version, and replay can re-run any window under any version.
-  strategyVersionId String
-  strategyVersion   StrategyVersion @relation(fields: [strategyVersionId], references: [id])
+  strategyVersionId        String
+  strategyVersion          StrategyVersion        @relation(fields: [strategyVersionId], references: [id])
+  strategyProfileVersionId String                 @default("legacy-shadow-profile-v1")
+  strategyProfileVersion   StrategyProfileVersion @relation(fields: [strategyProfileVersionId], references: [id])
 
-  ts DateTime @default(now())
+  ts               DateTime          @default(now())
   /// HOLD | COMPOUND | REBALANCE | EXIT
-  kind        String
+  kind             String
   /// string[] — every gate that passed or failed, in evaluation order.
-  reasonsJson Json
+  reasonsJson      Json
   /// CostEstimate for REBALANCE/EXIT.
-  costEstJson Json?
-  newLowerBin Int?
-  newUpperBin Int?
+  costEstJson      Json?
+  newLowerBin      Int?
+  newUpperBin      Int?
   /// Whether the decision was applied to the virtual position.
-  applied     Boolean  @default(false)
+  applied          Boolean           @default(false)
+  executionIntents ExecutionIntent[]
 
   @@index([managedPoolId, ts])
   @@index([managedPoolId, kind, ts])
   @@index([snapshotId])
   @@index([strategyVersionId])
+  @@index([strategyProfileVersionId])
+}
+
+/// One isolated custodial wallet per tenant. Only encrypted envelope material
+/// is persisted; plaintext signing material has no schema field by design.
+model ProjectWallet {
+  id                    String                 @id @default(cuid())
+  tenantId              String                 @unique
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  publicKey             String                 @unique
+  withdrawalAddress     String
+  keyCiphertext         Bytes
+  encryptedDataKey      Bytes
+  kmsKeyId              String
+  status                String                 @default("AWAITING_DEPOSIT")
+  gasReserveLamports    BigInt                 @default(50000000)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  deposits              DepositEvent[]
+  executionIntents      ExecutionIntent[]
+  feeCharges            FeeCharge[]
+  withdrawalRequests    WithdrawalRequest[]
+  addressChangeRequests AddressChangeRequest[]
+
+  @@index([status])
+}
+
+/// An append-only observed wallet balance change. Signature plus event index
+/// makes polling idempotent; a null asset mint denotes native SOL.
+model DepositEvent {
+  id              BigInt        @id @default(autoincrement())
+  projectWalletId String
+  projectWallet   ProjectWallet @relation(fields: [projectWalletId], references: [id], onDelete: Cascade)
+  signature       String
+  eventIndex      Int
+  assetMint       String?
+  amount          Decimal       @db.Decimal(38, 18)
+  kind            String
+  observedAt      DateTime      @default(now())
+  detailJson      Json?
+
+  @@unique([signature, eventIndex])
+  @@index([projectWalletId, observedAt])
+}
+
+/// Durable, idempotent statement of an action, written before transaction
+/// construction. Outcomes are separate append-only reconciliation attempts.
+model ExecutionIntent {
+  id                String             @id @default(cuid())
+  projectWalletId   String
+  projectWallet     ProjectWallet      @relation(fields: [projectWalletId], references: [id], onDelete: Cascade)
+  managedPoolId     String?
+  managedPool       ManagedPool?       @relation(fields: [managedPoolId], references: [id], onDelete: SetNull)
+  decisionId        BigInt?
+  decision          Decision?          @relation(fields: [decisionId], references: [id], onDelete: SetNull)
+  idempotencyKey    String             @unique
+  action            String
+  notionalSol       Decimal            @db.Decimal(38, 18)
+  status            String             @default("RECORDED")
+  detailJson        Json?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  outcomes          ExecutionOutcome[]
+  feeCharges        FeeCharge[]
+  withdrawalRequest WithdrawalRequest?
+
+  @@index([projectWalletId, createdAt])
+  @@index([managedPoolId, createdAt])
+  @@index([decisionId])
+  @@index([status, createdAt])
+}
+
+model ExecutionOutcome {
+  id             BigInt          @id @default(autoincrement())
+  intentId       String
+  intent         ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  attempt        Int
+  status         String
+  signature      String?
+  chainStateJson Json?
+  errorCode      String?
+  errorMessage   String?
+  createdAt      DateTime        @default(now())
+  finalizedAt    DateTime?
+
+  @@unique([intentId, attempt])
+  @@index([status, createdAt])
+  @@index([signature])
+}
+
+/// Performance fee charged from an explicitly recorded earned-fee amount.
+/// Keeping earned and charged amounts together makes principal charging
+/// detectable and reconstructable.
+model FeeCharge {
+  id                  BigInt          @id @default(autoincrement())
+  projectWalletId     String
+  projectWallet       ProjectWallet   @relation(fields: [projectWalletId], references: [id], onDelete: Cascade)
+  intentId            String
+  intent              ExecutionIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+  assetMint           String?
+  earnedAmount        Decimal         @db.Decimal(38, 18)
+  rateBps             Int
+  chargedAmount       Decimal         @db.Decimal(38, 18)
+  treasuryDestination String
+  createdAt           DateTime        @default(now())
+
+  @@index([projectWalletId, createdAt])
+  @@index([intentId])
+}
+
+model WithdrawalRequest {
+  id                String           @id @default(cuid())
+  projectWalletId   String
+  projectWallet     ProjectWallet    @relation(fields: [projectWalletId], references: [id], onDelete: Cascade)
+  withdrawalAddress String
+  status            String           @default("REQUESTED")
+  requestedAt       DateTime         @default(now())
+  confirmedAt       DateTime?
+  completedAt       DateTime?
+  intentId          String?          @unique
+  intent            ExecutionIntent? @relation(fields: [intentId], references: [id], onDelete: SetNull)
+
+  @@index([projectWalletId, requestedAt])
+  @@index([status, requestedAt])
+}
+
+model AddressChangeRequest {
+  id              String        @id @default(cuid())
+  projectWalletId String
+  projectWallet   ProjectWallet @relation(fields: [projectWalletId], references: [id], onDelete: Cascade)
+  fromAddress     String
+  toAddress       String
+  status          String        @default("PENDING_CONFIRMATION")
+  requestedAt     DateTime      @default(now())
+  confirmedAt     DateTime?
+  effectiveAfter  DateTime
+  appliedAt       DateTime?
+  cancelledAt     DateTime?
+
+  @@index([projectWalletId, requestedAt])
+  @@index([status, effectiveAfter])
 }
 
 /// Append-only history of the simulated position. The latest row is the

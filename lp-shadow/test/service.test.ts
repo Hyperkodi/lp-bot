@@ -93,6 +93,8 @@ describe.skipIf(!hasDatabase)('service layer', () => {
     await prisma.benchmarkMark.deleteMany({});
     await prisma.keyValue.deleteMany({});
     await prisma.managedPool.deleteMany({});
+    await prisma.strategyProfileVersion.deleteMany({});
+    await prisma.strategyProfile.deleteMany({});
     await prisma.strategyVersion.deleteMany({});
     await prisma.tenant.deleteMany({});
 
