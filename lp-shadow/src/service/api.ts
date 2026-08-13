@@ -22,6 +22,7 @@ import {
 import { runReplayForPool } from './replay.js';
 import { getStatus, getStrategy, getVerdict, getWhy, type GoLiveCache } from './reports.js';
 import type { LpShadowService, PoolSummary } from './types.js';
+import { requestFullWithdrawal } from './withdrawals.js';
 
 export async function createService(): Promise<LpShadowService> {
   const env = loadEnv();
@@ -76,6 +77,7 @@ export async function createService(): Promise<LpShadowService> {
       transitionMode(prisma, await resolvePoolRow(prisma, tenantId, poolRef), 'resume'),
     removePool: async (tenantId, poolRef) =>
       transitionMode(prisma, await resolvePoolRow(prisma, tenantId, poolRef), 'remove'),
+    requestWithdrawal: (tenantId) => requestFullWithdrawal(prisma, tenantId),
 
     getBotToken: () => env.TELEGRAM_BOT_TOKEN,
     close: () => disconnectPrisma(),

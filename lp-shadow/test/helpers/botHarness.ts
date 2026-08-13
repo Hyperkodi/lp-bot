@@ -19,6 +19,7 @@ import type {
   TenantRef,
   VerdictReport,
   WhyReport,
+  WithdrawalReceipt,
 } from '../../src/service/index.js';
 import { createLpBot } from '../../src/bot/bot.js';
 
@@ -138,6 +139,12 @@ export function createFakeService(
       },
     ],
   };
+  const withdrawal: WithdrawalReceipt = {
+    requestId: 'withdrawal-1',
+    status: 'REQUESTED',
+    withdrawalAddress: 'FounderWithdrawal1111111111111111111111111',
+    requestedAt: '2026-08-13T00:00:00.000Z',
+  };
 
   const base: LpShadowService = {
     redeemHandoff: record('redeemHandoff', FAKE_TENANT),
@@ -153,6 +160,7 @@ export function createFakeService(
     pausePool: record('pausePool', { ...FAKE_POOL, mode: 'PAUSED' as const }),
     resumePool: record('resumePool', FAKE_POOL),
     removePool: record('removePool', { ...FAKE_POOL, mode: 'STOPPED' as const }),
+    requestWithdrawal: record('requestWithdrawal', withdrawal),
     getBotToken: () => 'test-token',
     close: async () => undefined,
   };

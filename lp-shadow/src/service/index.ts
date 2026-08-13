@@ -21,4 +21,5 @@ export type {
   TenantRef,
   VerdictReport,
   WhyReport,
+  WithdrawalReceipt,
 } from './types.js';

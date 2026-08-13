@@ -23,11 +23,11 @@ const GENERIC_ERROR = "Something went wrong on my end — that's been logged. Tr
  * blockquote line-wrapping removed.
  */
 const WELCOME =
-  'I never ask for a private key and I cannot hold one. I watch your pool and ' +
-  'tell you what active management <i>would</i> have earned, against just holding. ' +
-  "When the evidence says it's worth doing, you decide what happens next." +
+  'Your private key never belongs in chat. I create one dedicated custodial wallet for this ' +
+  'project, then manage its Meteora position under the strategy you choose.' +
   '\n\n' +
-  'Add your first pool with /add — paste a Meteora DLMM pool address.';
+  'Funds can move only to your registered withdrawal address, the position, this project wallet, ' +
+  'or the Armara fee treasury for earned fees. /withdraw is always available.';
 
 /** docs §5, "Not registered" — verbatim, unwrapped. */
 const NOT_REGISTERED =
@@ -352,7 +352,7 @@ describe('onboarding copy (docs §5)', () => {
     });
     expect(harness.texts()).toEqual([WELCOME]);
     // The safety guarantee is the first thing said, per docs §1.
-    expect(harness.texts()[0]!.startsWith('I never ask for a private key and I cannot hold one.')).toBe(
+    expect(harness.texts()[0]!.startsWith('Your private key never belongs in chat.')).toBe(
       true,
     );
   });
@@ -430,6 +430,7 @@ describe('out of scope commands (docs §7)', () => {
       '/pause',
       '/resume',
       '/remove',
+      '/withdraw',
       '/add So11111111111111111111111111111111111111112',
       '/cancel',
     ]) {

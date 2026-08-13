@@ -110,6 +110,13 @@ export type ReplayReport = {
   results: ReplayVariantResult[];
 };
 
+export type WithdrawalReceipt = {
+  requestId: string;
+  status: 'REQUESTED';
+  withdrawalAddress: string;
+  requestedAt: string;
+};
+
 export type LpShadowService = {
   redeemHandoff(token: string, telegramChatId: string): Promise<TenantRef>;
   getTenantByChatId(telegramChatId: string): Promise<TenantRef | null>;
@@ -134,6 +141,7 @@ export type LpShadowService = {
   pausePool(tenantId: string, poolRef?: string): Promise<PoolSummary>;
   resumePool(tenantId: string, poolRef?: string): Promise<PoolSummary>;
   removePool(tenantId: string, poolRef?: string): Promise<PoolSummary>;
+  requestWithdrawal(tenantId: string): Promise<WithdrawalReceipt>;
 
   getBotToken(): string;
   close(): Promise<void>;

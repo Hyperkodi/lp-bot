@@ -20,9 +20,9 @@ import {
 const SAFETY_SUBJECT = ['private', 'key'].join(' ');
 
 const WELCOME = [
-  `I never ask for a ${SAFETY_SUBJECT} and I cannot hold one. I watch your pool and tell you what active management <i>would</i> have earned, against just holding. When the evidence says it's worth doing, you decide what happens next.`,
+  `Your ${SAFETY_SUBJECT} never belongs in chat. I create one dedicated custodial wallet for this project, then manage its Meteora position under the strategy you choose.`,
   '',
-  'Add your first pool with /add — paste a Meteora DLMM pool address.',
+  'Funds can move only to your registered withdrawal address, the position, this project wallet, or the Armara fee treasury for earned fees. /withdraw is always available.',
 ].join('\n');
 
 const NOT_REGISTERED =
@@ -43,6 +43,7 @@ export const BOT_COMMANDS = [
   { command: 'pause', description: 'Pause a shadow pool' },
   { command: 'resume', description: 'Resume a paused pool' },
   { command: 'remove', description: 'Stop shadowing and keep history' },
+  { command: 'withdraw', description: 'Close and return all custodial funds' },
   { command: 'cancel', description: 'Cancel the current prompt' },
 ] as const;
 
@@ -61,9 +62,10 @@ const HELP = [
   '/pause [pool] — pause shadowing',
   '/resume [pool] — resume shadowing',
   '/remove [pool] — stop shadowing and keep history',
+  '/withdraw — close the position and return everything to your registered address',
   '/cancel — cancel the current prompt',
   '',
-  `Safety: I never ask for or hold a ${SAFETY_SUBJECT}. I only observe public pool data and simulate outcomes.`,
+  `Safety: a ${SAFETY_SUBJECT} never belongs in chat. Custodial signing stays inside the isolated custody service, and /withdraw is never strategy-gated.`,
 ].join('\n');
 
 type PendingAddSize = {
@@ -318,6 +320,21 @@ export function createLpBot(token: string, service: LpShadowService): Bot {
         .row()
         .text('Cancel', `remove:cancel:${nonce}`);
       await replyHtml(ctx, `Stop shadowing${subject}?`, { reply_markup: keyboard });
+    }),
+  );
+
+  bot.command(
+    'withdraw',
+    withErrors(async (ctx) => {
+      const tenant = await requireTenant(ctx, service);
+      if (!tenant) return;
+      const receipt = await service.requestWithdrawal(tenant.tenantId);
+      await replyHtml(
+        ctx,
+        `Withdrawal requested. The full position and wallet balances will return to <code>${escapeHtml(
+          receipt.withdrawalAddress,
+        )}</code>. Request <code>${escapeHtml(receipt.requestId)}</code>.`,
+      );
     }),
   );
 

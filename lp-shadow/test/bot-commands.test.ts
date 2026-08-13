@@ -127,6 +127,7 @@ const GATED_COMMANDS = [
   '/pause',
   '/resume',
   '/remove',
+  '/withdraw',
   '/cancel',
 ];
 
@@ -265,8 +266,8 @@ describe('/start', () => {
       { method: 'redeemHandoff', args: ['handoff-token-abc', CHAT] },
     ]);
     const reply = harness.texts().join('\n');
-    expect(reply).toContain('I never ask for a private key and I cannot hold one.');
-    expect(reply).toContain('/add');
+    expect(reply).toContain('Your private key never belongs in chat.');
+    expect(reply).toContain('/withdraw');
   });
 
   it('greets a returning user by label when no token is given', async () => {
@@ -318,7 +319,7 @@ describe('/help', () => {
     for (const { command } of BOT_COMMANDS) {
       expect(reply, `/help omits /${command}`).toContain(`/${command}`);
     }
-    expect(reply).toContain('never ask for or hold a private key');
+    expect(reply).toContain('private key never belongs in chat');
   });
 
   it('never advertises a command that would need a key or funds', async () => {
@@ -333,6 +334,22 @@ describe('/help', () => {
     for (const forbidden of ['/wallet', '/harvest', '/rebalance', '/close', '/settings']) {
       expect(reply).not.toContain(forbidden);
     }
+  });
+});
+
+describe('/withdraw', () => {
+  it('is a direct always-available request and needs no pool or strategy lookup', async () => {
+    const service = createFakeService();
+    const harness = createHarness(service);
+
+    await harness.send('/withdraw');
+
+    expect(service.calls).toEqual([
+      { method: 'getTenantByChatId', args: [CHAT] },
+      { method: 'requestWithdrawal', args: ['tenant-1'] },
+    ]);
+    expect(harness.texts().join('\n')).toContain('Withdrawal requested');
+    expect(harness.texts().join('\n')).toContain('FounderWithdrawal');
   });
 });
 
@@ -373,6 +390,7 @@ describe('transport invariants', () => {
       // /remove replies with an inline keyboard: its extra options must be
       // merged onto the defaults, not replace them.
       '/remove',
+      '/withdraw',
     ];
 
     for (const command of commands) await harness.send(command);
