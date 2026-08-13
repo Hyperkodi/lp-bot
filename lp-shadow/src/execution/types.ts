@@ -1,4 +1,4 @@
-import type { Transaction, VersionedTransaction } from '@solana/web3.js';
+import type { AddressLookupTableAccount, Transaction, VersionedTransaction } from '@solana/web3.js';
 
 export type ExecutionAction =
   | 'CREATE_POOL'
@@ -84,6 +84,9 @@ export interface ExecutionRpc {
   simulate(transaction: Transaction | VersionedTransaction): Promise<{ err: unknown; logs?: string[] }>;
   send(transaction: Transaction | VersionedTransaction): Promise<string>;
   confirm(signature: string, commitment: 'confirmed' | 'finalized'): Promise<void>;
+  resolveAddressLookupTables?(
+    transaction: Transaction | VersionedTransaction,
+  ): Promise<readonly AddressLookupTableAccount[]>;
 }
 
 export type ChainState = {

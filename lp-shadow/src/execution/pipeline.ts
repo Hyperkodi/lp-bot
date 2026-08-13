@@ -96,7 +96,7 @@ export class ExecutionPipeline {
       recoveryState?.state === 'PARTIAL'
         ? await this.buildCompletion(request, recoveryState)
         : await this.dependencies.builder.build(request);
-    this.inspectBuilt(request, built);
+    await this.inspectBuilt(request, built);
     await this.checkCaps(store, request, intent.id, built);
     return this.runBuilt(store, request, intent, built);
   }
@@ -107,7 +107,7 @@ export class ExecutionPipeline {
     }
   }
 
-  private inspectBuilt(request: ExecutionRequest, built: BuiltExecution) {
+  private async inspectBuilt(request: ExecutionRequest, built: BuiltExecution) {
     if (built.transactions.length === 0) throw new Error('Meteora SDK builder returned no transactions');
     for (const item of built.transactions) {
       if (!Number.isFinite(item.notionalSol) || item.notionalSol < 0) {
@@ -116,10 +116,12 @@ export class ExecutionPipeline {
       if (item.notionalSol > request.notionalSol) {
         throw new Error('Meteora SDK transaction notional exceeds the recorded intent');
       }
+      const addressLookupTables = await this.dependencies.rpc.resolveAddressLookupTables?.(item.transaction);
       inspectTransaction(item.transaction, {
         action: request.action,
         allowedProgramIds: this.dependencies.allowedProgramIds,
         destinations: request.destinations,
+        ...(addressLookupTables ? { addressLookupTables } : {}),
       });
     }
   }
@@ -234,7 +236,7 @@ export class ExecutionPipeline {
         chain.state === 'PARTIAL'
           ? await this.buildCompletion(request, chain)
           : await this.dependencies.builder.build(request);
-      this.inspectBuilt(request, retry);
+      await this.inspectBuilt(request, retry);
       return this.runBuilt(store, request, intent, retry);
     }
     return this.stuck(store, request, intent, signature);

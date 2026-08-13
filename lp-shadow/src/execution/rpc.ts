@@ -36,5 +36,19 @@ export class DevnetRpc implements ExecutionRpc {
       throw new Error(`${commitment} confirmation failed: ${JSON.stringify(response.value.err)}`);
     }
   }
-}
 
+  async resolveAddressLookupTables(transaction: Transaction | VersionedTransaction) {
+    if (transaction instanceof Transaction) return [];
+    const tables = [];
+    for (const lookup of transaction.message.addressTableLookups) {
+      const response = await this.connection.getAddressLookupTable(lookup.accountKey, {
+        commitment: 'confirmed',
+      });
+      if (!response.value) {
+        throw new Error(`address lookup table ${lookup.accountKey.toBase58()} was not found`);
+      }
+      tables.push(response.value);
+    }
+    return tables;
+  }
+}

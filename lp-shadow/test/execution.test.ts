@@ -1,8 +1,11 @@
 import {
+  AddressLookupTableAccount,
   PublicKey,
   SystemProgram,
   Transaction,
   TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
 } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
 import {
@@ -126,6 +129,43 @@ describe('execution transaction inspection', () => {
         destinations: policy,
       }),
     ).toThrow(/destination allowlist/);
+  });
+
+  it('inspects a versioned transaction after resolving its address lookup table', () => {
+    const lookup = new AddressLookupTableAccount({
+      key: address(10),
+      state: {
+        deactivationSlot: 18_446_744_073_709_551_615n,
+        lastExtendedSlot: 0,
+        lastExtendedSlotStartIndex: 0,
+        authority: undefined,
+        addresses: [founder],
+      },
+    });
+    const message = new TransactionMessage({
+      payerKey: projectWallet,
+      recentBlockhash: '11111111111111111111111111111111',
+      instructions: [
+        SystemProgram.transfer({ fromPubkey: projectWallet, toPubkey: founder, lamports: 1 }),
+      ],
+    }).compileToV0Message([lookup]);
+    const versioned = new VersionedTransaction(message);
+
+    expect(() =>
+      inspectTransaction(versioned, {
+        action: 'WITHDRAW',
+        allowedProgramIds,
+        destinations: policy,
+      }),
+    ).toThrow(/resolved address tables/i);
+    expect(() =>
+      inspectTransaction(versioned, {
+        action: 'WITHDRAW',
+        allowedProgramIds,
+        destinations: policy,
+        addressLookupTables: [lookup],
+      }),
+    ).not.toThrow();
   });
 });
 

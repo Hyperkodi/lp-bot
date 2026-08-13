@@ -1,9 +1,10 @@
 import {
+  type AddressLookupTableAccount,
   ComputeBudgetProgram,
   SystemInstruction,
   SystemProgram,
   Transaction,
-  type TransactionInstruction,
+  TransactionInstruction,
   type VersionedTransaction,
 } from '@solana/web3.js';
 import type { DestinationPolicy, ExecutionAction } from './types.js';
@@ -24,6 +25,7 @@ type InspectionContext = {
   action: ExecutionAction;
   allowedProgramIds: ReadonlySet<string>;
   destinations: DestinationPolicy;
+  addressLookupTables?: readonly AddressLookupTableAccount[];
 };
 
 function classifyDestination(address: string, policy: DestinationPolicy) {
@@ -102,9 +104,43 @@ export function inspectTransaction(
   transaction: Transaction | VersionedTransaction,
   context: InspectionContext,
 ): void {
-  if (!(transaction instanceof Transaction)) {
+  if (transaction instanceof Transaction) {
+    for (const instruction of transaction.instructions) inspectLegacyInstruction(instruction, context);
+    return;
+  }
+
+  const message = transaction.message;
+  if (message.addressTableLookups.length > 0 && !context.addressLookupTables) {
     throw new Error('versioned transaction inspection requires resolved address tables');
   }
-  for (const instruction of transaction.instructions) inspectLegacyInstruction(instruction, context);
-}
+  let accountKeys;
+  try {
+    accountKeys = message.getAccountKeys({
+      addressLookupTableAccounts: [...(context.addressLookupTables ?? [])],
+    });
+  } catch (error) {
+    throw new Error(`versioned transaction address tables could not be resolved: ${String(error)}`);
+  }
 
+  for (const compiled of message.compiledInstructions) {
+    const programId = accountKeys.get(compiled.programIdIndex);
+    if (!programId) throw new Error('versioned transaction has an invalid program id index');
+    const keys = Array.from(compiled.accountKeyIndexes, (index) => {
+      const pubkey = accountKeys.get(index);
+      if (!pubkey) throw new Error('versioned transaction has an invalid account index');
+      return {
+        pubkey,
+        isSigner: message.isAccountSigner(index),
+        isWritable: message.isAccountWritable(index),
+      };
+    });
+    inspectLegacyInstruction(
+      new TransactionInstruction({
+        programId,
+        keys,
+        data: Buffer.from(compiled.data),
+      }),
+      context,
+    );
+  }
+}
