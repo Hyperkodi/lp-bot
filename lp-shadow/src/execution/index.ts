@@ -10,6 +10,18 @@ export { PrismaExecutionStore } from './prismaStore.js';
 export { DevnetRpc } from './rpc.js';
 export { createPrismaCustodySigner } from './custodySigner.js';
 export { MeteoraSdkBuilder, type MeteoraSdkBuildFunctions } from './meteoraBuilder.js';
+export {
+  CLASSIC_POSITION_WIDTH,
+  GAS_RESERVE_LAMPORTS,
+  MeteoraDevnetRecipes,
+  RealMeteoraSdkFacade,
+  assertGasReserve,
+  classicPositionRange,
+  createMeteoraDevnetRecipes,
+  findExistingCustomizablePool,
+  type MeteoraPoolFacade,
+  type MeteoraSdkFacade,
+} from './meteoraDlmm.js';
 export type {
   BuiltExecution,
   BuiltTransaction,
