@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+
+# Prisma client is generated from prisma/schema.prisma by `pnpm prisma:generate`.
+src/generated/
+
+*.log
+.DS_Store

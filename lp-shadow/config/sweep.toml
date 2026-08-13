@@ -1,0 +1,25 @@
+# Example parameter sweep for `pnpm replay --params ./config/sweep.toml`.
+#
+# Each [variants.NAME] table holds dotted-path overrides against
+# config/default.toml. An empty table replays the shipped defaults, which is the
+# baseline every other variant should be read against.
+
+[variants.baseline]
+
+[variants."narrow-k1.0"]
+"position.width_k" = 1.0
+
+[variants."wide-k2.5"]
+"position.width_k" = 2.5
+
+[variants."patient-dwell-90m"]
+"rebalance.oor_dwell_min" = 90
+
+[variants."twitchy-dwell-10m"]
+"rebalance.oor_dwell_min" = 10
+
+[variants."strict-cost-coverage-6x"]
+"rebalance.cost_coverage_multiple" = 6.0
+
+[variants."ignore-settle"]
+"rebalance.settle_min" = 0

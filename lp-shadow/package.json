@@ -1,0 +1,53 @@
+{
+  "name": "lp-shadow",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Read-only shadow-mode agent for a single Meteora DLMM pool. Phase 1: no keys, no signing, no funds.",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "replay": "tsx src/replay/replay.ts",
+    "report": "tsx src/report/run.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@meteora-ag/dlmm": "1.9.14",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "@solana/web3.js": "^1.98.4",
+    "bn.js": "^5.2.2",
+    "decimal.js": "^10.6.0",
+    "dotenv": "^17.4.2",
+    "smol-toml": "^1.4.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.2.0",
+    "@types/node": "^24.10.1",
+    "eslint": "^10.8.1",
+    "prisma": "^7.9.1",
+    "tsx": "^4.20.7",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.2",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma"
+    ]
+  }
+}

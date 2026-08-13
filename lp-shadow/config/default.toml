@@ -1,0 +1,77 @@
+# lp-shadow Phase 1 configuration.
+#
+# Every value here is folded into one flat `Params` object (src/config.ts) that
+# is handed to the pure decision engine, so `pnpm replay` can sweep any of them
+# without touching code.
+
+[pool]
+# Highest-TVL SOL/USDC DLMM pool. The operator fills this in — the loop refuses
+# to start while it is empty. Find it with:
+#   curl 'https://dlmm.datapi.meteora.ag/pools?search=SOL-USDC&sort_key=tvl&order_by=desc&limit=5'
+address = ""
+label = "SOL-USDC"
+
+[loop]
+snapshot_interval_sec = 45
+# Consecutive poll failures before an alert is sent (§13).
+max_consecutive_failures = 10
+# Alert when |jupPrice - activePrice| / activePrice exceeds this.
+price_divergence_alert_pct = 1.0
+
+[position]
+virtual_nav_usd = 10000     # size of the simulated position
+width_k = 1.5               # half-width = k x sigma_24h (see §8)
+min_total_bins = 15
+max_total_bins = 69         # SDK DEFAULT_BIN_PER_POSITION is 70 bins per
+                            # classic position; stay one under it.
+
+[compound]
+min_fees_usd = 5
+min_fees_pct_nav = 0.0005   # 0.05% of NAV
+
+[rebalance]
+oor_dwell_min = 30            # continuously out of range this long
+edge_overshoot_pct = 1.0      # price beyond range edge by at least this
+settle_band_pct = 0.5         # "settled": price within this band for settle_min
+settle_min = 15
+cost_coverage_multiple = 3.0  # expected 7d fee recapture >= 3x est. cost
+# Share of the next 7 days the fresh range is assumed to spend in range when
+# projecting fee recapture. Deliberately conservative.
+in_range_share_estimate = 0.7
+
+[exit]
+vol_tvl_floor = 0.5         # 24h volume / TVL below this...
+vol_tvl_dwell_hours = 24    # ...sustained this long -> EXIT signal
+
+[vol]
+# EWMA half-lives for realized volatility (§7).
+fast_half_life_min = 30
+slow_half_life_min = 360
+# Until this many returns have been observed the vol estimate is marked
+# unreliable and the engine holds rather than sizing a range off noise.
+min_samples = 20
+
+[costs]
+# Hypothetical rebalance is quoted as swapping this share of NAV across the
+# book (the leg needed to rebalance a two-sided position back to centre).
+swap_share_of_nav = 0.5
+quote_slippage_bps = 50
+# Transaction shape of a rebalance: withdraw + close + open + deposit.
+rebalance_tx_count = 4
+compound_tx_count = 2
+exit_tx_count = 2
+# Compute units assumed per transaction when pricing the priority fee.
+compute_units_per_tx = 400000
+# Base signature fee, lamports per transaction.
+signature_fee_lamports = 5000
+
+[report]
+timezone = "America/Edmonton"
+daily_hour_local = 7
+
+[golive]
+# Advisory gate printed weekly (§12).
+min_shadow_days = 28
+# A "vol regime change" = 7d realized vol at least doubling or halving inside
+# the shadow window.
+regime_change_ratio = 2.0

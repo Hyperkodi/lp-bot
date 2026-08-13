@@ -1,0 +1,148 @@
+// lp-shadow Phase 1 ledger.
+//
+// Everything the loop observes and every decision it would have taken is
+// written here. Nothing in this schema references a wallet, a keypair, or a
+// signature — Phase 1 holds no funds.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7 moved the connection URL out of the schema: it lives in
+// prisma.config.ts for the CLI, and reaches the client through the pg adapter
+// (src/ledger/prisma.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+/// One poll of the pool. Written on every successful tick; never fabricated.
+model Snapshot {
+  id             BigInt   @id @default(autoincrement())
+  ts             DateTime @default(now())
+  activeBinId    Int
+  /// Quote per base, read off the active bin.
+  activePrice    Decimal  @db.Decimal(38, 18)
+  /// Jupiter cross-check; an alert fires when divergence exceeds 1%.
+  jupPrice       Decimal? @db.Decimal(38, 18)
+  binStepBps     Int
+  /// Current total fee (base + dynamic) in bps, from the SDK.
+  feeBps         Decimal  @db.Decimal(18, 6)
+  /// Total liquidity in the active bin, valued in quote units.
+  liqActiveBin   Decimal  @db.Decimal(38, 18)
+  /// [{ binId, liquidity }] for +/- N bins around the active bin.
+  liqNearbyJson  Json
+  poolTvlUsd     Decimal? @db.Decimal(38, 18)
+  poolVol24hUsd  Decimal? @db.Decimal(38, 18)
+  poolFees24hUsd Decimal? @db.Decimal(38, 18)
+  /// Pool fees attributed to the interval since the previous snapshot.
+  poolFeesIntervalUsd Decimal? @db.Decimal(38, 18)
+  /// Annualized realized vol from the signal layer.
+  volFast        Decimal? @db.Decimal(18, 8)
+  volSlow        Decimal? @db.Decimal(18, 8)
+  /// CostInputs as they were live at this tick (quote, priority fee, SOL price,
+  /// bin-array rent). Stored so replay prices decisions with the numbers that
+  /// actually applied instead of re-deriving them from today's market.
+  costInputsJson Json?
+  decisions      Decision[]
+
+  @@index([ts])
+}
+
+/// The decision the engine reached for a snapshot. Phase 1 stops here: the
+/// decision is applied to the virtual position and nothing else.
+model Decision {
+  id          BigInt   @id @default(autoincrement())
+  snapshotId  BigInt
+  snapshot    Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  ts          DateTime @default(now())
+  /// HOLD | COMPOUND | REBALANCE | EXIT
+  kind        String
+  /// string[] — every gate that passed or failed, in evaluation order.
+  reasonsJson Json
+  /// CostEstimate for REBALANCE/EXIT.
+  costEstJson Json?
+  newLowerBin Int?
+  newUpperBin Int?
+  /// Whether the decision was applied to the virtual position.
+  applied     Boolean  @default(false)
+
+  @@index([ts])
+  @@index([kind, ts])
+  @@index([snapshotId])
+}
+
+/// Append-only history of the simulated position. The latest row is the
+/// position; the loop rebuilds its in-memory state from it on boot.
+model VirtualPositionEvent {
+  id           BigInt   @id @default(autoincrement())
+  ts           DateTime @default(now())
+  /// OPEN | COMPOUND | REBALANCE | EXIT | MARK
+  kind         String
+  lowerBinId   Int?
+  upperBinId   Int?
+  /// Virtual token amounts after the event.
+  baseAmount   Decimal  @db.Decimal(38, 18)
+  quoteAmount  Decimal  @db.Decimal(38, 18)
+  /// Cumulative virtual fees, quote units.
+  feesAccruedQ Decimal  @db.Decimal(38, 18)
+  /// Cumulative virtual costs charged, quote units.
+  costsPaidQ   Decimal  @db.Decimal(38, 18)
+  navUsd       Decimal  @db.Decimal(38, 18)
+  detailJson   Json?
+
+  @@index([ts])
+  @@index([kind, ts])
+}
+
+/// Benchmarks marked on every snapshot so the equity curves stay comparable.
+model BenchmarkMark {
+  id           BigInt   @id @default(autoincrement())
+  ts           DateTime @default(now())
+  /// Initial 50/50 basket, marked to market. This is the bar to beat.
+  hodlNavUsd   Decimal  @db.Decimal(38, 18)
+  /// v2-style full-range LP proxy (see §10). Crude, and labeled as such.
+  fullRangeUsd Decimal  @db.Decimal(38, 18)
+  /// Virtual position NAV including fees, net of costs.
+  strategyUsd  Decimal  @db.Decimal(38, 18)
+
+  @@index([ts])
+}
+
+/// Cursors and other small bits of loop state (e.g. last-seen cumulative pool
+/// fees, used to derive per-interval fees).
+model KeyValue {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+/// Replay results live in their own namespace so they can never be confused
+/// with live shadow data.
+model ReplayRun {
+  id          BigInt        @id @default(autoincrement())
+  ts          DateTime      @default(now())
+  label       String
+  fromTs      DateTime
+  toTs        DateTime
+  paramsJson  Json
+  /// Final NAV, HODL NAV, rebalance count, estimated costs, time in range.
+  resultsJson Json
+  events      ReplayEvent[]
+
+  @@index([ts])
+}
+
+model ReplayEvent {
+  id          BigInt    @id @default(autoincrement())
+  runId       BigInt
+  run         ReplayRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  ts          DateTime
+  snapshotId  BigInt
+  kind        String
+  reasonsJson Json
+  navUsd      Decimal   @db.Decimal(38, 18)
+  hodlUsd     Decimal   @db.Decimal(38, 18)
+
+  @@index([runId, ts])
+}
