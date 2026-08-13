@@ -90,9 +90,25 @@ export async function fetchQuote(args: {
   });
 
   const impact = body.priceImpactPct === undefined ? NaN : Number(body.priceImpactPct);
+  const inAmount = Number(body.inAmount);
+  const outAmount = Number(body.outAmount);
+
+  // A malformed or missing amount must be a *failure*, not a number. Passing
+  // NaN back would make swapOutValueUsd NaN, which makes the whole cost
+  // estimate NaN, which makes the rebalance cost-coverage comparison false
+  // forever — silently disabling rebalancing while every log line still looks
+  // healthy. Throwing routes it to the caller's fallback, which prices the
+  // swap pessimistically instead.
+  if (!Number.isFinite(inAmount) || inAmount <= 0) {
+    throw new Error(`jupiter quote returned an unusable inAmount: ${body.inAmount}`);
+  }
+  if (!Number.isFinite(outAmount) || outAmount <= 0) {
+    throw new Error(`jupiter quote returned an unusable outAmount: ${body.outAmount}`);
+  }
+
   return {
-    inAmount: Number(body.inAmount),
-    outAmount: Number(body.outAmount),
+    inAmount,
+    outAmount,
     priceImpactPct: Number.isFinite(impact) ? impact : null,
     routeLabels: (body.routePlan ?? []).map((step) => step.swapInfo?.label ?? '?'),
   };

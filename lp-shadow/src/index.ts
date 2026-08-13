@@ -134,6 +134,8 @@ export async function main(): Promise<void> {
   );
 
   let sinceReconcile = 0;
+  // Carried across ticks so a Jupiter outage cannot silently price SOL at zero.
+  let lastGoodSolPriceUsd = 0;
   while (!stopping) {
     const started = Date.now();
 
@@ -147,6 +149,28 @@ export async function main(): Promise<void> {
       log.warn(`jupiter price unavailable: ${errorMessage(err)}`);
       return new Map<string, number>();
     });
+
+    // Priority fees, signature fees and bin-array rent are all denominated in
+    // SOL. With no SOL price they evaluate to $0, which does not merely lose
+    // precision — it understates the cost of rebalancing and so biases the
+    // cost-coverage gate toward acting. The whole point of this phase is to
+    // measure whether activity beats holding *net of costs*, so a stale price
+    // is far better evidence than a free one.
+    const solNow = prices.get(SOL_MINT);
+    if (solNow !== undefined && solNow > 0) {
+      lastGoodSolPriceUsd = solNow;
+    } else if (lastGoodSolPriceUsd > 0) {
+      prices.set(SOL_MINT, lastGoodSolPriceUsd);
+      log.warn(
+        `SOL price unavailable; reusing the last known $${lastGoodSolPriceUsd.toFixed(2)} ` +
+          `so transaction costs are not understated to zero`,
+      );
+    } else {
+      log.warn(
+        'no SOL price seen yet — SOL-denominated costs read as $0 this tick, which ' +
+          'understates the cost of rebalancing',
+      );
+    }
 
     for (const runner of runners) {
       try {
