@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { decryptEnvelope, encryptEnvelope } from './crypto.js';
 import type { GeneratedDataKey, KmsAdapter } from './types.js';
 
@@ -21,6 +23,33 @@ export class LocalKmsAdapter implements KmsAdapter {
     const masterKey = Uint8Array.from(decoded);
     decoded.fill(0);
     return new LocalKmsAdapter(masterKey);
+  }
+
+  /** Development-only persistent master key for resumable devnet proofs. The
+   * file must live in an ignored local directory and is created owner-only. */
+  static async fromDevelopmentKeyFile(path: string): Promise<LocalKmsAdapter> {
+    let masterKey: Buffer;
+    try {
+      masterKey = await readFile(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      await mkdir(dirname(path), { recursive: true });
+      masterKey = randomBytes(32);
+      try {
+        await writeFile(path, masterKey, { flag: 'wx', mode: 0o600 });
+      } catch (writeError) {
+        masterKey.fill(0);
+        if ((writeError as NodeJS.ErrnoException).code !== 'EEXIST') throw writeError;
+        masterKey = await readFile(path);
+      }
+    }
+    if (masterKey.byteLength !== 32) {
+      masterKey.fill(0);
+      throw new Error('development KMS key file must contain exactly 32 bytes');
+    }
+    const copy = Uint8Array.from(masterKey);
+    masterKey.fill(0);
+    return new LocalKmsAdapter(copy);
   }
 
   async generateDataKey(): Promise<GeneratedDataKey> {

@@ -11,6 +11,7 @@ export type ExecutionAction =
 
 export type DestinationPolicy = {
   projectWalletAddress: string;
+  projectTokenAccounts?: ReadonlySet<string>;
   founderWithdrawalAddress: string;
   founderTokenAccounts: ReadonlySet<string>;
   feeTreasuryAddress: string;
@@ -39,7 +40,7 @@ export type BuiltExecution = { transactions: BuiltTransaction[] };
 
 export interface ExecutionBuilder {
   /** Builders with any other provenance are rejected before build. */
-  readonly source: 'METEORA_SDK';
+  readonly source: 'METEORA_SDK' | 'WITHDRAWAL_SWEEP';
   build(request: ExecutionRequest): Promise<BuiltExecution>;
   buildCompletion?(request: ExecutionRequest, state: ChainState): Promise<BuiltExecution>;
 }
@@ -82,6 +83,10 @@ export interface ExecutionStore {
 export interface ExecutionRpc {
   readonly cluster: 'devnet';
   readonly endpoint: string;
+  prepare?(
+    transaction: Transaction | VersionedTransaction,
+    feePayer: string,
+  ): Promise<Transaction | VersionedTransaction>;
   simulate(transaction: Transaction | VersionedTransaction): Promise<{ err: unknown; logs?: string[] }>;
   send(transaction: Transaction | VersionedTransaction): Promise<string>;
   confirm(signature: string, commitment: 'confirmed' | 'finalized'): Promise<void>;

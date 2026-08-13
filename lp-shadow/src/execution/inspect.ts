@@ -29,6 +29,7 @@ type InspectionContext = {
 };
 
 function classifyDestination(address: string, policy: DestinationPolicy) {
+  if (policy.projectTokenAccounts?.has(address)) return 'wallet';
   if (address === policy.founderWithdrawalAddress || policy.founderTokenAccounts.has(address)) {
     return 'founder';
   }

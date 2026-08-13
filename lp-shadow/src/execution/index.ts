@@ -17,6 +17,13 @@ export {
 } from './chainState.js';
 export { MeteoraSdkBuilder, type MeteoraSdkBuildFunctions } from './meteoraBuilder.js';
 export {
+  SolanaWithdrawalSweepBalanceSource,
+  WithdrawalSweepBuilder,
+  WithdrawalSweepChainStateReader,
+  type SweepTokenAccount,
+  type WithdrawalSweepBalanceSource,
+} from './withdrawalSweep.js';
+export {
   CLASSIC_POSITION_WIDTH,
   GAS_RESERVE_LAMPORTS,
   MeteoraDevnetRecipes,
@@ -24,6 +31,7 @@ export {
   assertGasReserve,
   classicPositionRange,
   createMeteoraDevnetRecipes,
+  deriveMeteoraPoolProgramAccounts,
   findExistingCustomizablePool,
   type MeteoraPoolFacade,
   type MeteoraSdkFacade,

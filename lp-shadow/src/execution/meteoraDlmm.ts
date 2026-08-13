@@ -164,6 +164,63 @@ export async function findExistingCustomizablePool(
   return null;
 }
 
+export function deriveMeteoraPoolProgramAccounts(input: {
+  tokenXMint: PublicKey;
+  tokenYMint: PublicKey;
+  poolAddress: PublicKey;
+  lowerBinId?: number;
+  upperBinId?: number;
+  positionBase?: PublicKey;
+}): Set<string> {
+  const programId = devnetProgramId();
+  const deriveReserve = sdkExport<
+    (mint: PublicKey, pool: PublicKey, program: PublicKey) => [PublicKey, number]
+  >('deriveReserve');
+  const deriveOracle = sdkExport<(pool: PublicKey, program: PublicKey) => [PublicKey, number]>(
+    'deriveOracle',
+  );
+  const deriveBadge = sdkExport<(mint: PublicKey, program: PublicKey) => [PublicKey, number]>(
+    'deriveTokenBadge',
+  );
+  const deriveBitmap = sdkExport<(pool: PublicKey, program: PublicKey) => [PublicKey, number]>(
+    'deriveBinArrayBitmapExtension',
+  );
+  const accounts = new Set<string>([
+    input.poolAddress.toBase58(),
+    deriveReserve(input.tokenXMint, input.poolAddress, programId)[0].toBase58(),
+    deriveReserve(input.tokenYMint, input.poolAddress, programId)[0].toBase58(),
+    deriveOracle(input.poolAddress, programId)[0].toBase58(),
+    deriveBadge(input.tokenXMint, programId)[0].toBase58(),
+    deriveBadge(input.tokenYMint, programId)[0].toBase58(),
+    deriveBitmap(input.poolAddress, programId)[0].toBase58(),
+  ]);
+  if (
+    input.lowerBinId !== undefined &&
+    input.upperBinId !== undefined &&
+    input.positionBase
+  ) {
+    const lower = new BN(input.lowerBinId);
+    const width = new BN(input.upperBinId - input.lowerBinId + 1);
+    const derivePosition = sdkExport<
+      (pool: PublicKey, base: PublicKey, lowerBin: BN, positionWidth: BN, program: PublicKey) => [PublicKey, number]
+    >('derivePosition');
+    accounts.add(
+      derivePosition(input.poolAddress, input.positionBase, lower, width, programId)[0].toBase58(),
+    );
+    const indexes = sdkExport<(lowerBin: BN, upperBin: BN) => BN[]>('getBinArrayIndexesCoverage')(
+      lower,
+      new BN(input.upperBinId),
+    );
+    const deriveBinArray = sdkExport<
+      (pool: PublicKey, index: BN, program: PublicKey) => [PublicKey, number]
+    >('deriveBinArray');
+    for (const index of indexes) {
+      accounts.add(deriveBinArray(input.poolAddress, index, programId)[0].toBase58());
+    }
+  }
+  return accounts;
+}
+
 function details(request: ExecutionRequest) {
   if (!request.detail) throw new Error(`${request.action} requires Meteora recipe details`);
   return request.detail;
@@ -234,7 +291,17 @@ export class MeteoraDevnetRecipes {
     if (request.action === 'OPEN_POSITION') return this.open(request, value, wallet, poolAddress, pool);
     if (request.action === 'COMPOUND') return this.add(request, value, wallet, pool);
     if (request.action === 'REBALANCE') {
-      const removed = await this.remove(request, value, wallet, pool);
+      const removed = await this.remove(
+        request,
+        {
+          ...value,
+          positionAddress: value.oldPositionAddress ?? value.positionAddress,
+          lowerBinId: value.oldLowerBinId ?? value.lowerBinId,
+          upperBinId: value.oldUpperBinId ?? value.upperBinId,
+        },
+        wallet,
+        pool,
+      );
       const opened = await this.open(request, value, wallet, poolAddress, pool);
       return { transactions: [...removed.transactions, ...opened.transactions] };
     }
@@ -269,7 +336,10 @@ export class MeteoraDevnetRecipes {
   ): Promise<BuiltExecution> {
     this.checkReserve(value);
     const activeBin = await pool.getActiveBin();
-    const range = classicPositionRange(activeBin.binId);
+    const centerBinId = value.centerBinId === undefined
+      ? activeBin.binId
+      : integer(value.centerBinId, 'centerBinId', -443_636);
+    const range = classicPositionRange(centerBinId);
     const lower = new BN(range.lowerBinId);
     const width = new BN(range.width);
     const positionAddress = this.sdk.derivePositionAddress(poolAddress, wallet, lower, width);

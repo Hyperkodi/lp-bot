@@ -1,4 +1,7 @@
 import { PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CloudKmsAdapter,
@@ -32,6 +35,27 @@ describe('local envelope encryption', () => {
       'kmsKeyId',
       'publicKey',
     ]);
+  });
+
+  it('reuses an owner-local development KMS file for resumable devnet proofs', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'lpbot-kms-'));
+    try {
+      const path = join(directory, 'master.key');
+      const first = await LocalKmsAdapter.fromDevelopmentKeyFile(path);
+      const wallet = await createEncryptedWallet(first);
+      const second = await LocalKmsAdapter.fromDevelopmentKeyFile(path);
+      const transaction = new VersionedTransaction(
+        new TransactionMessage({
+          payerKey: new PublicKey(wallet.publicKey),
+          recentBlockhash: '11111111111111111111111111111111',
+          instructions: [],
+        }).compileToV0Message(),
+      );
+      await expect(signTransaction(second, wallet, transaction, 'devnet')).resolves.toBe(transaction);
+      expect((await readFile(path)).byteLength).toBe(32);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('decrypts only long enough to sign and returns the signed transaction', async () => {

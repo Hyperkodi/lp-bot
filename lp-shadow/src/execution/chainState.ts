@@ -86,7 +86,10 @@ export class SolanaMeteoraChainStateSource implements MeteoraChainStateSource {
     if (!poolExists || intent.action === 'CREATE_POOL') {
       return { poolExists, positionExists: false, hasLiquidity: false };
     }
-    const positionText = detailKey(intent, 'positionAddress');
+    const positionText =
+      intent.action === 'REBALANCE'
+        ? detailKey(intent, 'newPositionAddress')
+        : detailKey(intent, 'positionAddress');
     if (!positionText) throw new Error('execution intent has no positionAddress');
     const positionAddress = new PublicKey(positionText);
     const positionAccount = await this.connection.getAccountInfo(positionAddress, 'confirmed');

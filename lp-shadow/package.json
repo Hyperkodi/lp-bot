@@ -12,6 +12,7 @@
     "dev": "tsx src/index.ts",
     "start": "tsx src/index.ts",
     "bot": "tsx src/bot/main.ts",
+    "e2e:devnet": "tsx scripts/devnet-custodial-e2e.ts",
     "handoff:issue": "tsx scripts/issue-handoff.ts",
     "smoke:service": "tsx scripts/smoke-service.ts",
     "replay": "tsx src/replay/replay.ts",

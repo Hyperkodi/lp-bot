@@ -91,7 +91,7 @@ export class ExecutionPipeline {
       intent = await store.createIntent(request);
     }
 
-    this.assertSdkBuilder();
+    this.assertBuilder(request);
     const built =
       recoveryState?.state === 'PARTIAL'
         ? await this.buildCompletion(request, recoveryState)
@@ -101,9 +101,11 @@ export class ExecutionPipeline {
     return this.runBuilt(store, request, intent, built);
   }
 
-  private assertSdkBuilder() {
-    if (this.dependencies.builder.source !== 'METEORA_SDK') {
-      throw new Error('execution builder must be the Meteora SDK adapter');
+  private assertBuilder(request: ExecutionRequest) {
+    if (this.dependencies.builder.source === 'METEORA_SDK') return;
+    if (this.dependencies.builder.source === 'WITHDRAWAL_SWEEP' && request.action === 'WITHDRAW') return;
+    {
+      throw new Error('execution builder must be Meteora SDK, except an explicit full-withdrawal sweep');
     }
   }
 
@@ -160,7 +162,10 @@ export class ExecutionPipeline {
     let lastSignature: string | undefined;
     let lastOutcomeId: bigint | undefined;
     for (const item of built.transactions) {
-      const simulation = await this.dependencies.rpc.simulate(item.transaction);
+      const prepared = this.dependencies.rpc.prepare
+        ? await this.dependencies.rpc.prepare(item.transaction, request.destinations.projectWalletAddress)
+        : item.transaction;
+      const simulation = await this.dependencies.rpc.simulate(prepared);
       if (simulation.err !== null) {
         await store.updateIntent(intent.id, 'SIMULATION_FAILED');
         const message = `transaction simulation failed: ${String(simulation.err)}`;
@@ -168,7 +173,7 @@ export class ExecutionPipeline {
         throw new Error(message);
       }
 
-      const signed = await this.dependencies.sign(request.projectWalletId, item.transaction);
+      const signed = await this.dependencies.sign(request.projectWalletId, prepared);
       const attempt = (await store.countOutcomes(intent.id)) + 1;
       let signature: string;
       try {

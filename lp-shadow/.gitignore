@@ -3,6 +3,7 @@ dist/
 .env
 .env.*
 !.env.example
+.devnet-e2e/
 
 # Prisma client is generated from prisma/schema.prisma by `pnpm prisma:generate`.
 src/generated/

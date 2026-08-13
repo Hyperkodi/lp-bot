@@ -141,9 +141,12 @@ Commit: `7ac7cdb`.
 
 ### Step 7
 
-- No custodial devnet end-to-end test has run. The required test must create
-  mints, create or find a pool, open a 70-bin position centered correctly,
-  force a rebalance, and withdraw through the real pipeline.
+- A resumable custodial devnet runner now covers disposable mints, deposit
+  observation, mint screening, pool creation, an exact 70-bin position, forced
+  recentering, full removal, and founder sweep through the guarded pipeline.
+- The real-chain proof is not yet complete: Solana's public RPC faucet returned
+  HTTP 429 before setup. Fund the public devnet-only address recorded in
+  `lp-shadow/docs/DEVNET_CUSTODIAL_E2E.md` and rerun `pnpm e2e:devnet`.
 
 ## Deliberate TODOs and open decisions
 

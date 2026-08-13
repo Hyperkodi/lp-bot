@@ -1,4 +1,4 @@
-import { Connection, Transaction, type VersionedTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction, type VersionedTransaction } from '@solana/web3.js';
 import type { ExecutionRpc } from './types.js';
 
 export class DevnetRpc implements ExecutionRpc {
@@ -12,6 +12,14 @@ export class DevnetRpc implements ExecutionRpc {
     }
     this.endpoint = endpoint;
     this.connection = new Connection(endpoint, 'confirmed');
+  }
+
+  async prepare(transaction: Transaction | VersionedTransaction, feePayer: string) {
+    if (!(transaction instanceof Transaction)) return transaction;
+    const latest = await this.connection.getLatestBlockhash('confirmed');
+    transaction.feePayer = new PublicKey(feePayer);
+    transaction.recentBlockhash = latest.blockhash;
+    return transaction;
   }
 
   async simulate(transaction: Transaction | VersionedTransaction): Promise<{ err: unknown; logs?: string[] }> {
