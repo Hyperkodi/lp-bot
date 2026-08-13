@@ -16,8 +16,14 @@ function intentDto(row: {
   action: string;
   notionalSol: { toString(): string };
   status: string;
+  detailJson?: unknown;
 }): StoredIntent {
-  return { ...row, notionalSol: Number(row.notionalSol.toString()) };
+  const { detailJson, ...rest } = row;
+  const detail =
+    detailJson && typeof detailJson === 'object' && !Array.isArray(detailJson)
+      ? (detailJson as Record<string, unknown>)
+      : undefined;
+  return { ...rest, notionalSol: Number(row.notionalSol.toString()), ...(detail ? { detail } : {}) };
 }
 
 export class PrismaExecutionStore implements ExecutionStore {

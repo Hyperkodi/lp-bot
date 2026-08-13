@@ -51,6 +51,7 @@ export type StoredIntent = {
   action: string;
   notionalSol: number;
   status: string;
+  detail?: Record<string, unknown>;
 };
 
 export type StoredOutcome = { id: bigint; status: string; signature: string | null };

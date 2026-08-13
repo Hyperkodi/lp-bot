@@ -9,6 +9,12 @@ export { ExecutionPipeline, type ExecutionAlert } from './pipeline.js';
 export { PrismaExecutionStore } from './prismaStore.js';
 export { DevnetRpc } from './rpc.js';
 export { createPrismaCustodySigner } from './custodySigner.js';
+export {
+  DevnetMeteoraChainStateReader,
+  SolanaMeteoraChainStateSource,
+  type MeteoraChainSnapshot,
+  type MeteoraChainStateSource,
+} from './chainState.js';
 export { MeteoraSdkBuilder, type MeteoraSdkBuildFunctions } from './meteoraBuilder.js';
 export {
   CLASSIC_POSITION_WIDTH,
