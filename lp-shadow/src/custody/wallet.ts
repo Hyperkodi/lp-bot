@@ -30,7 +30,9 @@ export async function signTransaction<T extends SignableTransaction>(
   kms: KmsAdapter,
   wallet: EncryptedWallet,
   transaction: T,
+  cluster: 'devnet',
 ): Promise<T> {
+  if (cluster !== 'devnet') throw new Error('custodial signing is devnet-only');
   if (wallet.kmsKeyId !== kms.keyId) {
     throw new Error(`wallet KMS ${wallet.kmsKeyId} does not match adapter ${kms.keyId}`);
   }

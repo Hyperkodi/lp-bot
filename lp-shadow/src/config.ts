@@ -59,6 +59,13 @@ const configSchema = z.object({
     min_shadow_days: z.number().positive(),
     regime_change_ratio: z.number().gt(1),
   }),
+  execution: z.object({
+    cluster: z.literal('devnet'),
+    per_transaction_notional_sol: z.number().positive(),
+    project_rolling_24h_notional_sol: z.number().positive(),
+    global_rolling_24h_notional_sol: z.number().positive(),
+    max_reconcile_attempts: z.number().int().positive(),
+  }),
 });
 
 export type RawConfig = z.infer<typeof configSchema>;
@@ -72,6 +79,28 @@ const envSchema = z.object({
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+export type ExecutionConfig = {
+  cluster: 'devnet';
+  caps: {
+    perTransactionSol: number;
+    projectRolling24hSol: number;
+    globalRolling24hSol: number;
+  };
+  maxReconcileAttempts: number;
+};
+
+export function toExecutionConfig(cfg: RawConfig): ExecutionConfig {
+  return {
+    cluster: cfg.execution.cluster,
+    caps: {
+      perTransactionSol: cfg.execution.per_transaction_notional_sol,
+      projectRolling24hSol: cfg.execution.project_rolling_24h_notional_sol,
+      globalRolling24hSol: cfg.execution.global_rolling_24h_notional_sol,
+    },
+    maxReconcileAttempts: cfg.execution.max_reconcile_attempts,
+  };
+}
 
 /**
  * `MAX_BINS_PER_POSITION` in @meteora-ag/dlmm 1.9.14 is 1400 (extended

@@ -44,7 +44,7 @@ describe('local envelope encryption', () => {
     }).compileToV0Message();
     const transaction = new VersionedTransaction(message);
 
-    const signed = await signTransaction(kms, wallet, transaction);
+    const signed = await signTransaction(kms, wallet, transaction, 'devnet');
 
     expect(signed).toBe(transaction);
     expect([...signed.signatures[0]!].some((byte) => byte !== 0)).toBe(true);
@@ -63,7 +63,7 @@ describe('local envelope encryption', () => {
       }).compileToV0Message(),
     );
 
-    await expect(signTransaction(kms, wallet, transaction)).rejects.toThrow(/authenticate|decrypt/i);
+    await expect(signTransaction(kms, wallet, transaction, 'devnet')).rejects.toThrow(/authenticate|decrypt/i);
     expect([...transaction.signatures[0]!].every((byte) => byte === 0)).toBe(true);
   });
 });

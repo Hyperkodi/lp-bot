@@ -75,3 +75,14 @@ min_shadow_days = 28
 # A "vol regime change" = 7d realized vol at least doubling or halving inside
 # the shadow window.
 regime_change_ratio = 2.0
+
+[execution]
+# Signed code is devnet-only until the complete custodial path passes its
+# integration proof. The executor also rejects endpoints that do not say devnet.
+cluster = "devnet"
+# TODO(cap-values, design §15.2): placeholders, not launch approvals. Ryan must
+# choose these from treasury sizes and operating policy before production.
+per_transaction_notional_sol = 10
+project_rolling_24h_notional_sol = 50
+global_rolling_24h_notional_sol = 250
+max_reconcile_attempts = 3

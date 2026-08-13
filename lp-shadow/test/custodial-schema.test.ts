@@ -170,6 +170,19 @@ describe.skipIf(!hasDatabase)('custodial ledger schema', () => {
     expect(deposit.projectWalletId).toBe(wallet.id);
     expect(outcome.intentId).toBe(intent.id);
     expect(fee.chargedAmount.toString()).toBe('0.01');
+    await expect(
+      prisma.feeCharge.create({
+        data: {
+          projectWalletId: wallet.id,
+          intentId: intent.id,
+          assetMint: null,
+          earnedAmount: 0.1,
+          rateBps: 1_000,
+          chargedAmount: 0.2,
+          treasuryDestination: 'ARMARA_TREASURY',
+        },
+      }),
+    ).rejects.toThrow();
     expect(withdrawal.withdrawalAddress).toBe('SCHEMA_WITHDRAWAL');
     expect(addressChange.effectiveAfter.getTime()).toBeGreaterThan(Date.now());
   });
