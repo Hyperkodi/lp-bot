@@ -352,6 +352,21 @@ describe.skipIf(!hasDatabase)('main loop tick', () => {
     expect(poolA!.strategyVersion).toBe(1);
     expect(poolA!.days).toBeGreaterThan(0);
 
+    // Stopping frees the live slot so the pool can be re-added as a new run…
+    const stoppedRow = await prisma.managedPool.findUniqueOrThrow({
+      where: { id: runner.pool.managedPoolId },
+      select: { runSeq: true },
+    });
+    expect(stoppedRow.runSeq).toBeGreaterThan(0n);
+
+    // …and reviving one reclaims it, so a live row never sits outside the
+    // one-live-run-per-pool constraint.
     await setPoolMode(prisma, runner.pool.managedPoolId, 'SHADOW');
+    const revivedRow = await prisma.managedPool.findUniqueOrThrow({
+      where: { id: runner.pool.managedPoolId },
+      select: { runSeq: true, stoppedAt: true },
+    });
+    expect(revivedRow.runSeq).toBe(0n);
+    expect(revivedRow.stoppedAt).toBeNull();
   });
 });

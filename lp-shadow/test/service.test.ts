@@ -267,7 +267,7 @@ describe.skipIf(!hasDatabase)('service layer', () => {
 
   it('replays nothing gracefully', async () => {
     const row = await resolvePoolRow(prisma, tenantId, 'WSOL-USDC');
-    const report = await runReplayForPool(prisma, row);
+    const report = await runReplayForPool(prisma, row, configParams);
     expect(report.snapshots).toBe(0);
     expect(report.results).toEqual([]);
   });
@@ -397,7 +397,7 @@ describe.skipIf(!hasDatabase)('service layer', () => {
 
     // Default window: the 40-day-old snapshot is excluded; the why-test's
     // snapshot (now) plus the two recent ones are in.
-    const bounded = await runReplayForPool(prisma, row);
+    const bounded = await runReplayForPool(prisma, row, configParams);
     expect(bounded.snapshots).toBe(3);
     expect(bounded.results.length).toBeGreaterThanOrEqual(2);
     for (const result of bounded.results) {
@@ -405,7 +405,31 @@ describe.skipIf(!hasDatabase)('service layer', () => {
       expect(Number.isFinite(result.hodlNavUsd)).toBe(true);
     }
 
-    const widened = await runReplayForPool(prisma, row, { fromDays: 60 });
+    const widened = await runReplayForPool(prisma, row, configParams, { fromDays: 60 });
     expect(widened.snapshots).toBe(4);
+  });
+
+  it("leads the replay with the pool's stamped strategy, not the shipped defaults", async () => {
+    const row = await resolvePoolRow(prisma, tenantId, 'WSOL-USDC');
+    const report = await runReplayForPool(prisma, row, configParams);
+
+    // The first row is what this pool actually runs — anything else invites
+    // reading a variant the pool never ran as its own record.
+    expect(report.results[0]!.variant).toBe(`stamped v${row.strategyVersion.version}`);
+    // And it is not duplicated by an identical shipped-defaults "baseline".
+    expect(report.results.filter((r) => r.variant === 'baseline')).toHaveLength(0);
+  });
+
+  it('resolves a fully-stopped pool to its most recent run instead of a dead end', async () => {
+    // Both runs of WSOL-USDC stopped: the label must still reach the history
+    // /remove promised to keep, rather than raising POOL_AMBIGUOUS pointing at
+    // an id the bot never displays.
+    const live = await resolvePoolRow(prisma, tenantId, 'WSOL-USDC');
+    await transitionMode(prisma, live, 'remove');
+
+    const resolved = await resolvePoolRow(prisma, tenantId, 'WSOL-USDC');
+    expect(resolved.mode).toBe('STOPPED');
+    expect(resolved.id).toBe(live.id);
+    expect((await resolvePoolRow(prisma, tenantId, POOL_B)).id).toBe(live.id);
   });
 });

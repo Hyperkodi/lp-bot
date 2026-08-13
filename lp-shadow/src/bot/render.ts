@@ -70,10 +70,26 @@ function balanceHtml(chunks: string[]): string[] {
 }
 
 /**
+ * Largest cut point at or below `budget` that does not land inside a `<...>`
+ * literal — balanceHtml can only reason about whole tags, so a boundary
+ * through one would produce exactly the parse error it exists to prevent.
+ */
+function safeCut(line: string, budget: number): number {
+  const open = line.lastIndexOf('<', budget - 1);
+  if (open === -1) return budget;
+  const close = line.indexOf('>', open);
+  // Cutting is safe when the tag before the boundary is already closed.
+  if (close !== -1 && close < budget) return budget;
+  // Otherwise stop just before the tag opens — unless that would make no
+  // progress, in which case the "tag" is longer than the budget and cannot be
+  // a real one.
+  return open > 0 ? open : budget;
+}
+
+/**
  * Split without discarding any content. Newline-terminated pieces are kept
- * together whenever possible; a single overlong line is split as a fallback
- * (which can cut through a tag literal — the tables this bot emits are
- * multi-line, so in practice boundaries land between lines).
+ * together whenever possible; a single overlong line is split as a fallback,
+ * never through a tag literal.
  */
 export function chunkMessage(message: string, limit = TELEGRAM_MESSAGE_LIMIT): string[] {
   if (!Number.isInteger(limit) || limit <= BALANCE_HEADROOM) {
@@ -96,11 +112,13 @@ export function chunkMessage(message: string, limit = TELEGRAM_MESSAGE_LIMIT): s
   for (const piece of pieces) {
     if (piece.length > budget) {
       flush();
-      for (let offset = 0; offset < piece.length; offset += budget) {
-        const part = piece.slice(offset, offset + budget);
-        if (part.length === budget) chunks.push(part);
-        else current = part;
+      let offset = 0;
+      while (piece.length - offset > budget) {
+        const take = safeCut(piece.slice(offset), budget);
+        chunks.push(piece.slice(offset, offset + take));
+        offset += take;
       }
+      current = piece.slice(offset);
       continue;
     }
 

@@ -185,19 +185,28 @@ export async function resolvePoolRow(
   if (byId) return byId;
 
   // A pool that was removed and re-added exists as several runs sharing one
-  // address (and usually one label). A ref that matches several runs means the
-  // live one, unless only stopped runs remain — then the ref is ambiguous.
+  // address and usually one label. Such a ref means the live run; with no live
+  // run it means the most recent one — the alternative is telling someone to
+  // identify a run by an id nothing displays, which makes the history /remove
+  // promised to keep unreachable. Older runs stay addressable by id.
+  //
+  // Genuine ambiguity is a ref matching several *different pools*, and that
+  // still raises POOL_AMBIGUOUS with the labels listed.
   const pickOne = (matches: PoolRow[]): PoolRow | null => {
+    if (matches.length === 0) return null;
     if (matches.length === 1) return matches[0]!;
-    const live = matches.filter((row) => row.mode !== 'STOPPED');
-    if (live.length === 1) return live[0]!;
-    if (matches.length > 1) {
+
+    const addresses = new Set(matches.map((row) => row.poolAddress));
+    if (addresses.size > 1) {
       throw new ServiceError(
         'POOL_AMBIGUOUS',
-        `"${trimmed}" matches more than one run of that pool — use the pool id from /pools instead.`,
+        `"${trimmed}" matches more than one pool: ${matches.map((row) => `${row.label} (${row.mode})`).join(', ')}. Say which.`,
       );
     }
-    return null;
+
+    const live = matches.filter((row) => row.mode !== 'STOPPED');
+    const candidates = live.length > 0 ? live : matches;
+    return [...candidates].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]!;
   };
 
   const byAddress = pickOne(rows.filter((row) => row.poolAddress === trimmed));
@@ -231,6 +240,19 @@ export async function transitionMode(
       `${row.label} is ${row.mode} — ${action} needs it to be ${transition.from.join(' or ')}.`,
     );
   }
-  await setPoolMode(prisma, row.id, transition.to);
+  try {
+    await setPoolMode(prisma, row.id, transition.to);
+  } catch (err) {
+    // Stopping stamps runSeq from the clock, and reviving reclaims slot 0 —
+    // either can collide with an existing run. Rare, but it must read as a
+    // retryable condition rather than an internal error.
+    if ((err as { code?: string }).code === 'P2002') {
+      throw new ServiceError(
+        'INVALID_INPUT',
+        `Could not ${action} ${row.label} — another run of that pool is in the way. Try again.`,
+      );
+    }
+    throw err;
+  }
   return summarize(prisma, { ...row, mode: transition.to });
 }

@@ -129,7 +129,9 @@ function renderServiceError(error: ServiceError): string {
     case 'NO_POOLS':
       return 'No pools yet — add one with /add.';
     case 'POOL_AMBIGUOUS':
-      return `${error.message}\nWhich pool did you mean? Use its label with the command.`;
+      // The service's message names the disambiguating pools; appending a
+      // fixed follow-up here risks prescribing exactly the input that failed.
+      return error.message;
     case 'DUPLICATE_POOL':
       return 'Already shadowing that pool.';
     case 'POOL_UNREACHABLE':

@@ -9,18 +9,20 @@
  * hundreds of thousands of rows. The CLI remains the way to replay everything
  * and record it.
  *
- * Known parity caveat: the sweep base comes from the shipped config, not the
- * pool's stamped strategy version — same as the replay CLI. Once default.toml
- * drifts from the version a pool is stamped with, the "baseline" variant
- * describes the shipped defaults, not the strategy that produced the ledger.
+ * The first row is always the pool's *stamped* strategy, not the shipped
+ * defaults. Once config/default.toml drifts from the version a pool carries,
+ * a "baseline" taken from the file would describe a strategy that never ran on
+ * that pool — and every other variant's delta would be measured against it.
  */
 import { fileURLToPath } from 'node:url';
 import { applyOverrides, loadRawConfig } from '../config.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { errorMessage } from '../logger.js';
 import { loadSnapshots, loadVariants, runVariant, type Variant } from '../replay/replay.js';
+import type { Params } from '../types.js';
 import { ServiceError } from './errors.js';
 import { summarize, type PoolRow } from './pools.js';
+import { poolParams } from './reports.js';
 import type { ReplayReport } from './types.js';
 
 const MS_PER_DAY = 86_400_000;
@@ -31,6 +33,7 @@ const SWEEP_FILE = fileURLToPath(new URL('../../config/sweep.toml', import.meta.
 export async function runReplayForPool(
   prisma: PrismaClient,
   row: PoolRow,
+  configParams: Params,
   opts: { fromDays?: number } = {},
 ): Promise<ReplayReport> {
   const now = Date.now();
@@ -48,6 +51,13 @@ export async function runReplayForPool(
   // problems (missing sweep file, emptied variants, drifted override paths)
   // are operational conditions, not bugs — surface them as ServiceErrors the
   // bot can show.
+  // The strategy this pool is actually stamped with, run first and named for
+  // its version — the row users read as "what my pool did".
+  const stamped: Variant = {
+    name: `stamped v${row.strategyVersion.version}`,
+    params: poolParams(configParams, row),
+  };
+
   let variants: Variant[];
   try {
     const base = applyOverrides(loadRawConfig(), {
@@ -55,7 +65,16 @@ export async function runReplayForPool(
       'pool.label': row.label,
       'position.virtual_nav_usd': Number(row.virtualNavUsd.toString()),
     });
-    variants = loadVariants(base, SWEEP_FILE);
+    variants = [
+      stamped,
+      // The shipped-defaults "baseline" is redundant when the pool is stamped
+      // with those same defaults, which is the common case.
+      ...loadVariants(base, SWEEP_FILE).filter(
+        (variant) =>
+          variant.name !== 'baseline' ||
+          JSON.stringify(variant.params) !== JSON.stringify(stamped.params),
+      ),
+    ];
   } catch (err) {
     throw new ServiceError(
       'INVALID_INPUT',

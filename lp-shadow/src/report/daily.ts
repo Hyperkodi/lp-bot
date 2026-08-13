@@ -44,14 +44,22 @@ export async function evaluateGoLive(
   prisma: PrismaClient,
   params: Params,
   managedPoolId: string,
-  now: number,
+  /** Kept for call-site symmetry with buildDailyReport; the window is derived from the data. */
+  _now: number,
 ): Promise<GoLiveVerdict> {
-  const first = await prisma.snapshot.findFirst({
+  // First-to-last observation, not first-to-now: a pool that was paused for a
+  // month observed nothing in that month, and the gate asks for weeks of
+  // *data*. (Same span the service reports as daysOfData, so /pools and
+  // /verdict cannot disagree about how much evidence exists.)
+  const span = await prisma.snapshot.aggregate({
     where: { managedPoolId },
-    orderBy: { ts: 'asc' },
-    select: { ts: true },
+    _min: { ts: true },
+    _max: { ts: true },
   });
-  const shadowDays = first ? (now - first.ts.getTime()) / MS_PER_DAY : 0;
+  const shadowDays =
+    span._min.ts && span._max.ts
+      ? (span._max.ts.getTime() - span._min.ts.getTime()) / MS_PER_DAY
+      : 0;
 
   // Regime change: the slow-vol series doubling or halving anywhere inside the
   // shadow window. Sampled hourly so a single spiky tick cannot fake it.

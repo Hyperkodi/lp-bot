@@ -62,7 +62,12 @@ export async function createService(): Promise<LpShadowService> {
     getVerdict: async (tenantId, poolRef) =>
       getVerdict(prisma, configParams, await resolvePoolRow(prisma, tenantId, poolRef), goLiveCache),
     runReplay: async (tenantId, poolRef, opts) =>
-      runReplayForPool(prisma, await resolvePoolRow(prisma, tenantId, poolRef), opts),
+      runReplayForPool(
+        prisma,
+        await resolvePoolRow(prisma, tenantId, poolRef),
+        configParams,
+        opts,
+      ),
     getStrategy: () => getStrategy(prisma),
 
     pausePool: async (tenantId, poolRef) =>

@@ -33,6 +33,11 @@ async function cachedGoLive(
   const hit = cache.get(managedPoolId);
   if (hit && Date.now() - hit.at < GO_LIVE_TTL_MS) return hit.verdict;
   const verdict = await evaluateGoLive(prisma, params, managedPoolId, Date.now());
+  // Drop what has gone stale rather than keeping an entry per pool ever
+  // queried for the life of the process.
+  for (const [key, entry] of cache) {
+    if (Date.now() - entry.at >= GO_LIVE_TTL_MS) cache.delete(key);
+  }
   cache.set(managedPoolId, { at: Date.now(), verdict });
   return verdict;
 }

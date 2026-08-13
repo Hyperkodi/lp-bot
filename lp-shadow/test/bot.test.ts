@@ -77,4 +77,21 @@ describe('Telegram renderers', () => {
     const stripped = (value: string): string => value.replaceAll(/<\/?(b|pre)>/g, '');
     expect(chunks.map(stripped).join('')).toBe(stripped(payload));
   });
+
+  it('never splits through a tag literal when one long line must be cut', () => {
+    // A single line far over the limit, with tags sprinkled where naive
+    // fixed-width slicing would cut straight through one.
+    const payload = `<pre>${'x'.repeat(4000)}<b>bold</b>${'y'.repeat(4000)}</pre>`;
+    const chunks = chunkMessage(payload);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(4096);
+      // A chunk ending mid-tag would leave an unterminated '<' fragment.
+      const lastOpen = chunk.lastIndexOf('<');
+      if (lastOpen !== -1) expect(chunk.indexOf('>', lastOpen)).toBeGreaterThan(lastOpen);
+    }
+    const stripped = (value: string): string => value.replaceAll(/<\/?(b|pre)>/g, '');
+    expect(chunks.map(stripped).join('')).toBe(stripped(payload));
+  });
 });

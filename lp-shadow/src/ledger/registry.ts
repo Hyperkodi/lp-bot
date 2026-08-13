@@ -142,8 +142,11 @@ export async function setPoolMode(
       mode,
       stoppedAt,
       // Stopping stamps the run into the uniqueness key so the pool can be
-      // re-added as a fresh run; live rows always carry 0.
-      ...(stoppedAt ? { runSeq: BigInt(stoppedAt.getTime()) } : {}),
+      // re-added as a fresh run; live rows always carry 0. Reviving a stopped
+      // row therefore has to reclaim slot 0 — and if another live run already
+      // holds it, the unique constraint says so rather than letting two live
+      // runs of one pool coexist.
+      runSeq: stoppedAt ? BigInt(stoppedAt.getTime()) : BigInt(0),
     },
   });
 }
