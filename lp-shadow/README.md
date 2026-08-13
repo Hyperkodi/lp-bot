@@ -114,6 +114,7 @@ curl -s 'https://dlmm.datapi.meteora.ag/pools?search=SOL-USDC&sort_key=tvl&order
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm lint` | ESLint, including the purity boundary rule |
 | `pnpm replay --from 2026-08-01 --params ./config/sweep.toml [--pool <id>]` | re-run the engine over one pool's stored snapshots with alternate params |
+| `pnpm strategy:lab [-- --json]` | compare all three complete profiles across deterministic stress scenarios; synthetic results are not launch approval |
 | `pnpm report --print-only [--pool <id>]` | build the daily report on demand |
 | `pnpm exec tsx scripts/seed-synthetic.ts --hours 48 --wipe` | fill a scratch database with synthetic snapshots to smoke-test the pipeline |
 
@@ -145,6 +146,9 @@ Honest about its approximations, because the point of Phase 1 is evidence:
 - **Per-bin inventory is tracked.** When the active bin crosses bin *i*, bin
   *i*'s inventory converts at *bin i's own price*, not at the market price. That
   is the actual DLMM mechanic, and it is where impermanent loss comes from.
+- **Profile shapes are distinct.** Strategy comparison simulates the same
+  middle-heavy Curve, even Spot, and edge-heavy BidAsk families selected for
+  Meteora execution. See `docs/STRATEGY_LAB.md` for the remaining evidence gaps.
 - **Fees are approximated.** DLMM pays only the active bin, so the simulation
   takes `ourLiq / (poolActiveBinLiq + ourLiq)` of the interval's pool fees. The
   interval fee figure is a delta of the pool's lifetime `trade_fee` counter (or,

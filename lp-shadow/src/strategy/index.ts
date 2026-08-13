@@ -14,3 +14,12 @@ export {
   publishBuiltInProfiles,
   type PublishedProfileVersion,
 } from './ledger.js';
+export {
+  evaluateProfiles,
+  profileVariants,
+  rebinSnapshots,
+  syntheticStrategyScenarios,
+  type ProfileScenarioResult,
+  type ProfileVariant,
+  type StrategyScenario,
+} from './lab.js';

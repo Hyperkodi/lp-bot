@@ -287,6 +287,13 @@ function asBn(value: unknown, name: string) {
   return new BN(amount(value, name).toString());
 }
 
+function distributionStrategyType(value: unknown): StrategyType {
+  if (value === undefined || value === 'SPOT') return 0 as StrategyType;
+  if (value === 'CURVE') return 1 as StrategyType;
+  if (value === 'BID_ASK') return 2 as StrategyType;
+  throw new Error('distributionShape must be SPOT, CURVE, or BID_ASK');
+}
+
 function transactionItems(
   transactions: Transaction[],
   phase: string,
@@ -389,7 +396,7 @@ export class MeteoraDevnetRecipes {
       strategy: {
         minBinId: range.lowerBinId,
         maxBinId: range.upperBinId,
-        strategyType: 0 as StrategyType,
+        strategyType: distributionStrategyType(value.distributionShape),
       },
       user: wallet,
       slippage: typeof value.slippagePct === 'number' ? value.slippagePct : 0.5,
@@ -416,7 +423,7 @@ export class MeteoraDevnetRecipes {
       strategy: {
         minBinId: integer(value.lowerBinId, 'lowerBinId', -443_636),
         maxBinId: integer(value.upperBinId, 'upperBinId', -443_636),
-        strategyType: 0 as StrategyType,
+        strategyType: distributionStrategyType(value.distributionShape),
       },
       user: wallet,
       slippage: typeof value.slippagePct === 'number' ? value.slippagePct : 0.5,

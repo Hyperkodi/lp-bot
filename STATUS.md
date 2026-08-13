@@ -29,6 +29,15 @@ Commits: `85c3f19`, fee invariant in `2321627`.
 - Built idempotent publishing of immutable profile versions.
 - Added a pure launch guard that suppresses only `REBALANCE`, preserves the
   complete would-be reason trail, and leaves compounding and exits available.
+- Added a profile-aware strategy lab that simulates Curve, Spot, and BidAsk,
+  applies each profile's bin step and launch guard, and reports drawdown,
+  inventory exposure, fees, costs, range coverage, executed rebalances, and
+  suppressed rebalances across deterministic stress paths.
+- Wired the concrete Meteora recipe to the selected distribution shape; it no
+  longer always sends Spot.
+- The initial synthetic report is recorded in
+  `lp-shadow/docs/STRATEGY_LAB.md`. It deliberately selects no winner and found
+  that balanced BidAsk does not provide the promised downside protection.
 
 Commit: `e0aeb26`.
 
@@ -121,7 +130,7 @@ Commit: `7ac7cdb`.
 
 - `pnpm typecheck`: pass.
 - `pnpm lint`: pass.
-- `pnpm test`: 275 pass, 0 skipped when run with a fully migrated local scratch Postgres at
+- `pnpm test`: 284 pass, 0 skipped when run with a fully migrated local scratch Postgres at
   `127.0.0.1:55432`; every database suite deletes every table it touches.
 - `pnpm e2e:devnet`: pass against Solana devnet. All five execution intents
   reconciled, every recorded execution outcome finalized, and the final
@@ -163,7 +172,13 @@ Commit: `7ac7cdb`.
   50 SOL per-project/day, and 250 SOL global/day caps after Ryan approves an
   operating policy.
 - `TODO(profile-replay)`: tune all three profile parameter sets and the 24-hour
-  launch guard from replay/live shadow evidence.
+  launch guard from historical replay/live shadow evidence. The deterministic
+  stress lab is implemented but is not historical evidence.
+- Redesign Treasury Defensive around an explicit asymmetric inventory budget or
+  one-sided range; balanced BidAsk finished the synthetic launch drawdown fully
+  exposed to the falling base token.
+- Add a buyer-slippage/depth model before claiming that Market Depth improves
+  execution quality; time in range is only a proxy.
 - Choose the performance fee percentage (and whether it differs by profile).
   The schema and principal-protection invariant exist; no rate was chosen.
 - Failed launch remains alert-only, acting only on founder instruction. No

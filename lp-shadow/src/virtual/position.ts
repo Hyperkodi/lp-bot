@@ -9,11 +9,76 @@
 import { binPrice, isInRange } from '../binMath.js';
 import type {
   CostEstimate,
+  DistributionShape,
   Params,
   PoolSnapshot,
   VirtualBin,
   VirtualPosition,
 } from '../types.js';
+
+function shapeWeight(
+  shape: DistributionShape,
+  binId: number,
+  activeBinId: number,
+  lowerBinId: number,
+  upperBinId: number,
+): number {
+  if (shape === 'SPOT') return 1;
+  const standardDeviation = Math.max((upperBinId - lowerBinId) / 4, 1);
+  const distance = (binId - activeBinId) / standardDeviation;
+  const gaussian = Math.exp(-(distance * distance) / 2);
+  return shape === 'CURVE' ? gaussian : 1 / gaussian;
+}
+
+/**
+ * Mirrors Meteora's three balanced strategy families in plain numbers. Each
+ * side is normalized independently because the SDK allocates all supplied X
+ * above the active bin and all supplied Y below it; the active bin receives
+ * half of each side's raw weight.
+ */
+export function distributeByShape(
+  lowerBinId: number,
+  upperBinId: number,
+  activeBinId: number,
+  activePrice: number,
+  valueQuote: number,
+  shape: DistributionShape,
+): VirtualBin[] {
+  const nBins = upperBinId - lowerBinId + 1;
+  if (nBins <= 0) throw new Error('distributeByShape: empty range');
+  if (!(activePrice > 0)) throw new Error('distributeByShape: non-positive price');
+  if (!(valueQuote >= 0)) throw new Error('distributeByShape: negative value');
+
+  const rows = Array.from({ length: nBins }, (_, offset) => {
+    const binId = lowerBinId + offset;
+    return {
+      binId,
+      weight: shapeWeight(shape, binId, activeBinId, lowerBinId, upperBinId),
+    };
+  });
+  const quoteWeight = rows.reduce(
+    (total, row) => total + (row.binId < activeBinId ? row.weight : row.binId === activeBinId ? row.weight / 2 : 0),
+    0,
+  );
+  const baseWeight = rows.reduce(
+    (total, row) => total + (row.binId > activeBinId ? row.weight : row.binId === activeBinId ? row.weight / 2 : 0),
+    0,
+  );
+
+  // Centred strategy ranges always have both sides. These fallbacks keep the
+  // pure helper well-defined for one-sided fixtures and future withdrawals.
+  const quoteBudget = baseWeight > 0 ? valueQuote / 2 : valueQuote;
+  const baseBudget = quoteWeight > 0 ? valueQuote / 2 : valueQuote;
+  return rows.map(({ binId, weight }) => {
+    const quoteShare = binId < activeBinId ? weight : binId === activeBinId ? weight / 2 : 0;
+    const baseShare = binId > activeBinId ? weight : binId === activeBinId ? weight / 2 : 0;
+    return {
+      binId,
+      quote: quoteWeight > 0 ? (quoteBudget * quoteShare) / quoteWeight : 0,
+      base: baseWeight > 0 ? (baseBudget * baseShare) / baseWeight / activePrice : 0,
+    };
+  });
+}
 
 /**
  * Spot distribution: the same token amount in every bin on each side, which is
@@ -35,22 +100,14 @@ export function distributeSpot(
   activePrice: number,
   valueQuote: number,
 ): VirtualBin[] {
-  const nBins = upperBinId - lowerBinId + 1;
-  if (nBins <= 0) throw new Error('distributeSpot: empty range');
-  if (!(activePrice > 0)) throw new Error('distributeSpot: non-positive price');
-  const perBin = valueQuote / nBins;
-
-  const bins: VirtualBin[] = [];
-  for (let binId = lowerBinId; binId <= upperBinId; binId++) {
-    if (binId < activeBinId) {
-      bins.push({ binId, base: 0, quote: perBin });
-    } else if (binId > activeBinId) {
-      bins.push({ binId, base: perBin / activePrice, quote: 0 });
-    } else {
-      bins.push({ binId, base: perBin / 2 / activePrice, quote: perBin / 2 });
-    }
-  }
-  return bins;
+  return distributeByShape(
+    lowerBinId,
+    upperBinId,
+    activeBinId,
+    activePrice,
+    valueQuote,
+    'SPOT',
+  );
 }
 
 function totals(bins: VirtualBin[]): { base: number; quote: number } {
@@ -73,13 +130,15 @@ export function openPosition(
   lowerBinId: number,
   upperBinId: number,
   navUsd: number,
+  distributionShape: DistributionShape = 'SPOT',
 ): VirtualPosition {
-  const bins = distributeSpot(
+  const bins = distributeByShape(
     lowerBinId,
     upperBinId,
     snapshot.activeBinId,
     snapshot.activePrice,
     navUsd,
+    distributionShape,
   );
   const { base, quote } = totals(bins);
   return {
@@ -207,17 +266,19 @@ export function applyCompound(
   position: VirtualPosition,
   snapshot: PoolSnapshot,
   costEst: CostEstimate,
+  distributionShape: DistributionShape = 'SPOT',
 ): VirtualPosition {
   const value =
     positionValueQuote(position, snapshot.activePrice) +
     position.pendingFeesQuote -
     costEst.totalUsd;
-  const bins = distributeSpot(
+  const bins = distributeByShape(
     position.lowerBinId,
     position.upperBinId,
     snapshot.activeBinId,
     snapshot.activePrice,
     Math.max(0, value),
+    distributionShape,
   );
   const { base, quote } = totals(bins);
   return {
@@ -242,17 +303,19 @@ export function applyRebalance(
   newLowerBin: number,
   newUpperBin: number,
   costEst: CostEstimate,
+  distributionShape: DistributionShape = 'SPOT',
 ): VirtualPosition {
   const value =
     positionValueQuote(position, snapshot.activePrice) +
     position.pendingFeesQuote -
     costEst.totalUsd;
-  const bins = distributeSpot(
+  const bins = distributeByShape(
     newLowerBin,
     newUpperBin,
     snapshot.activeBinId,
     snapshot.activePrice,
     Math.max(0, value),
+    distributionShape,
   );
   const { base, quote } = totals(bins);
   return {

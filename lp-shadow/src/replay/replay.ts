@@ -30,7 +30,14 @@ import { disconnectPrisma, getPrisma } from '../ledger/prisma.js';
 import { log } from '../logger.js';
 import { BINS_PER_CLASSIC_POSITION } from '../poller/sdkConstants.js';
 import { initRegimeState, updateRegime } from '../signals/regime.js';
-import type { CostInputs, Params, PoolSnapshot, VirtualPosition } from '../types.js';
+import { applyLaunchGuard } from '../strategy/launchGuard.js';
+import type {
+  CostInputs,
+  DistributionShape,
+  Params,
+  PoolSnapshot,
+  VirtualPosition,
+} from '../types.js';
 import { creditFullRangeFees, initBenchmarks, markBenchmarks } from '../virtual/benchmarks.js';
 import {
   accrueFees,
@@ -72,7 +79,15 @@ function parseArgs(argv: string[]): Args {
   };
 }
 
-export type Variant = { name: string; params: Params };
+export type Variant = {
+  name: string;
+  params: Params;
+  distributionShape?: DistributionShape;
+  launchGuardHours?: number;
+  poolCreatedAtMs?: number;
+  profileSlug?: string;
+  defaultBinStepBps?: number;
+};
 
 export function loadVariants(base: RawConfig, paramsFile: string | undefined, label?: string): Variant[] {
   if (!paramsFile) {
@@ -148,6 +163,10 @@ export type ReplayResult = {
   totalCostsUsd: number;
   totalFeesUsd: number;
   timeInRange: number;
+  maxDrawdownPct: number;
+  finalBaseSharePct: number;
+  suppressedRebalances: number;
+  averageRangeBins: number;
   ticks: number;
   events: {
     ts: number;
@@ -170,8 +189,15 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
   let compounds = 0;
   let inRangeTicks = 0;
   let ticks = 0;
+  let suppressedRebalances = 0;
+  let rangeBinsTotal = 0;
+  let peakNavUsd = 0;
+  let maxDrawdownPct = 0;
+  let finalBaseSharePct = 0;
   const events: ReplayResult['events'] = [];
   let lastMarks = { hodlNavUsd: 0, fullRangeUsd: 0, strategyUsd: 0 };
+  const distributionShape = variant.distributionShape ?? 'SPOT';
+  const poolCreatedAtMs = variant.poolCreatedAtMs ?? stored[0]?.snapshot.ts;
 
   for (const { snapshot, costInputs, id } of stored) {
     const updated = updateRegime(regime, snapshot, params);
@@ -181,7 +207,13 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
     if (position === null) {
       if (!signals.volReliable) continue;
       const plan = planRange(snapshot.activeBinId, snapshot.binStepBps, signals, params);
-      position = openPosition(snapshot, plan.lowerBinId, plan.upperBinId, params.virtualNavUsd);
+      position = openPosition(
+        snapshot,
+        plan.lowerBinId,
+        plan.upperBinId,
+        params.virtualNavUsd,
+        distributionShape,
+      );
       benchmarks = initBenchmarks(snapshot, params.virtualNavUsd);
     }
 
@@ -190,6 +222,7 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
     if (benchmarks) benchmarks = creditFullRangeFees(benchmarks, snapshot);
 
     ticks += 1;
+    rangeBinsTotal += position.upperBinId - position.lowerBinId + 1;
     if (
       position.status === 'ACTIVE' &&
       snapshot.activeBinId >= position.lowerBinId &&
@@ -198,10 +231,25 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
       inRangeTicks += 1;
     }
 
-    const decision = decide(snapshot, position, signals, params, costInputs);
+    const rawDecision = decide(snapshot, position, signals, params, costInputs);
+    const guarded =
+      variant.launchGuardHours === undefined || poolCreatedAtMs === undefined
+        ? { decision: rawDecision, suppressedDecision: null }
+        : applyLaunchGuard(rawDecision, {
+            poolCreatedAtMs,
+            nowMs: snapshot.ts,
+            launchGuardHours: variant.launchGuardHours,
+          });
+    const decision = guarded.decision;
+    if (guarded.suppressedDecision?.kind === 'REBALANCE') suppressedRebalances += 1;
     switch (decision.kind) {
       case 'COMPOUND':
-        position = applyCompound(position, snapshot, estimateCost('COMPOUND', costInputs, params));
+        position = applyCompound(
+          position,
+          snapshot,
+          estimateCost('COMPOUND', costInputs, params),
+          distributionShape,
+        );
         compounds += 1;
         break;
       case 'REBALANCE':
@@ -211,6 +259,7 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
           decision.newLowerBin,
           decision.newUpperBin,
           decision.costEst,
+          distributionShape,
         );
         rebalances += 1;
         break;
@@ -223,13 +272,32 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
 
     if (benchmarks) lastMarks = markBenchmarks(benchmarks, position, snapshot);
 
-    if (decision.kind !== 'HOLD') {
+    const navUsd = positionNavUsd(position, snapshot);
+    peakNavUsd = Math.max(peakNavUsd, navUsd);
+    if (peakNavUsd > 0) {
+      maxDrawdownPct = Math.max(maxDrawdownPct, (peakNavUsd - navUsd) / peakNavUsd);
+    }
+    const inventoryValue = position.base * snapshot.activePrice + position.quote;
+    finalBaseSharePct = inventoryValue > 0
+      ? (position.base * snapshot.activePrice) / inventoryValue
+      : 0;
+
+    if (guarded.suppressedDecision?.kind === 'REBALANCE') {
+      events.push({
+        ts: snapshot.ts,
+        snapshotId: id,
+        kind: 'SUPPRESSED_REBALANCE',
+        reasons: decision.reasons,
+        navUsd,
+        hodlUsd: lastMarks.hodlNavUsd,
+      });
+    } else if (decision.kind !== 'HOLD') {
       events.push({
         ts: snapshot.ts,
         snapshotId: id,
         kind: decision.kind,
         reasons: decision.reasons,
-        navUsd: positionNavUsd(position, snapshot),
+        navUsd,
         hodlUsd: lastMarks.hodlNavUsd,
       });
     }
@@ -248,6 +316,10 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
     totalCostsUsd: position?.cumCostsQuote ?? 0,
     totalFeesUsd: position?.cumFeesQuote ?? 0,
     timeInRange: ticks > 0 ? inRangeTicks / ticks : 0,
+    maxDrawdownPct,
+    finalBaseSharePct,
+    suppressedRebalances,
+    averageRangeBins: ticks > 0 ? rangeBinsTotal / ticks : 0,
     ticks,
     events,
   };
@@ -266,6 +338,9 @@ function printTable(results: ReplayResult[]): void {
     ['rebal', (r) => String(r.rebalances)],
     ['compound', (r) => String(r.compounds)],
     ['in-range', (r) => `${(r.timeInRange * 100).toFixed(1)}%`],
+    ['max DD', (r) => `${(r.maxDrawdownPct * 100).toFixed(1)}%`],
+    ['base', (r) => `${(r.finalBaseSharePct * 100).toFixed(1)}%`],
+    ['guarded', (r) => String(r.suppressedRebalances)],
     ['exited', (r) => (r.exited ? 'yes' : 'no')],
   ];
   const widths = columns.map(([header, get]) =>
@@ -345,6 +420,10 @@ async function main(): Promise<void> {
             totalCostsUsd: result.totalCostsUsd,
             totalFeesUsd: result.totalFeesUsd,
             timeInRange: result.timeInRange,
+            maxDrawdownPct: result.maxDrawdownPct,
+            finalBaseSharePct: result.finalBaseSharePct,
+            suppressedRebalances: result.suppressedRebalances,
+            averageRangeBins: result.averageRangeBins,
             ticks: result.ticks,
           },
         },

@@ -1,8 +1,8 @@
-import type { Params } from '../types.js';
+import type { DistributionShape, Params } from '../types.js';
+
+export type { DistributionShape } from '../types.js';
 
 export type StrategyProfileSlug = 'fee-maximizer' | 'market-depth' | 'treasury-defensive';
-export type DistributionShape = 'SPOT' | 'CURVE' | 'BID_ASK';
-
 type ProfileParams = Pick<
   Params,
   'widthK' | 'oorDwellMin' | 'edgeOvershootPct' | 'settleMin' | 'costCoverageMultiple'
@@ -82,4 +82,3 @@ export const STRATEGY_PROFILES: Readonly<
 export function paramsForProfile(baseline: Params, slug: StrategyProfileSlug): Params {
   return { ...baseline, ...STRATEGY_PROFILES[slug].params };
 }
-

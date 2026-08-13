@@ -124,6 +124,7 @@ describe('Meteora devnet recipes', () => {
     const built = await recipes.build(
       request('OPEN_POSITION', {
         poolAddress: poolAddress.toBase58(),
+        distributionShape: 'CURVE',
         tokenXAmount: '1000',
         tokenYAmount: '2000',
         walletSolLamports: '1000000000',
@@ -145,7 +146,29 @@ describe('Meteora devnet recipes', () => {
     expect(String(initialize?.positionWidth)).toBe('70');
     const add = sdk.pool.calls.find((call) => call.method === 'add')?.value;
     expect(add).toMatchObject({ positionPubKey: positionAddress, user: wallet });
-    expect(add?.strategy).toMatchObject({ minBinId: 65, maxBinId: 134 });
+    expect(add?.strategy).toMatchObject({ minBinId: 65, maxBinId: 134, strategyType: 1 });
+  });
+
+  it('maps the founder-facing distribution names to Meteora strategy types', async () => {
+    const sdk = new FakeSdk();
+    const recipes = new MeteoraDevnetRecipes(sdk);
+    await recipes.build(
+      request('COMPOUND', {
+        poolAddress: poolAddress.toBase58(),
+        positionAddress: positionAddress.toBase58(),
+        lowerBinId: 65,
+        upperBinId: 134,
+        distributionShape: 'BID_ASK',
+        tokenXAmount: '1000',
+        tokenYAmount: '2000',
+        walletSolLamports: '1000000000',
+        nativeSolLamports: '0',
+      }),
+    );
+
+    expect(sdk.pool.calls.find((call) => call.method === 'add')?.value.strategy).toMatchObject({
+      strategyType: 2,
+    });
   });
 
   it('builds full removal with fee claim-and-close and resumes only unfinished phases', async () => {

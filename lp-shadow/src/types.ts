@@ -26,6 +26,8 @@ export type PoolSnapshot = {
   jupPrice?: number;
 };
 
+export type DistributionShape = 'SPOT' | 'CURVE' | 'BID_ASK';
+
 /**
  * A single bin of the simulated position.
  *

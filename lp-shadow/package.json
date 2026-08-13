@@ -16,6 +16,7 @@
     "handoff:issue": "tsx scripts/issue-handoff.ts",
     "smoke:service": "tsx scripts/smoke-service.ts",
     "replay": "tsx src/replay/replay.ts",
+    "strategy:lab": "tsx scripts/strategy-lab.ts",
     "report": "tsx src/report/run.ts",
     "test": "vitest run",
     "test:watch": "vitest",
