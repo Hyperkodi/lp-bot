@@ -28,6 +28,7 @@
     "@meteora-ag/dlmm": "1.9.14",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
+    "@solana/spl-token": "0.4.15",
     "@solana/web3.js": "^1.98.4",
     "bn.js": "^5.2.2",
     "decimal.js": "^10.6.0",
