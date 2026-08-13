@@ -54,6 +54,39 @@ export default tseslint.config(
     rules: pureLayerRules,
   },
   {
+    // The bot layer talks to src/service and nothing deeper. The service
+    // contract (src/service/index.ts, docs/FRONTEND_TELEGRAM_BOT.md) is the
+    // entire back-end as far as Telegram is concerned — reaching around it
+    // breaks the front-end/back-end split this repo is built on.
+    files: ['src/bot/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '**/ledger/**',
+                '**/poller/**',
+                '**/decision/**',
+                '**/virtual/**',
+                '**/signals/**',
+                '**/replay/**',
+                '**/report/**',
+                '**/generated/**',
+                '**/config.js',
+                '**/binMath.js',
+                '**/clock.js',
+              ],
+              message:
+                'src/bot may only import from src/service — the contract is src/service/index.ts.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Phase 1 holds no keys. If any of these words ever appear in the source,
     // something has gone very wrong and lint should say so loudly.
     files: ['src/**/*.ts'],

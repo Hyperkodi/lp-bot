@@ -43,7 +43,15 @@ src/
   ledger/               every database write; registry.ts owns tenants/pools/strategy
   report/               daily Telegram report and the go-live gate
   replay/               re-run the engine over stored snapshots
+  service/              the contract the Telegram bot layer consumes
+  bot/                  grammY bot (front-end workstream — see docs/)
 ```
+
+**The bot split.** The Telegram interface is a separate workstream built
+against `src/service/index.ts` only — command tree, copy, and acceptance
+criteria live in `docs/FRONTEND_TELEGRAM_BOT.md`, and an ESLint boundary rule
+keeps `src/bot/` from importing anything deeper. Handoff from the parent bot
+is a one-time stored token (`pnpm handoff:issue`, redeemed by `/start`).
 
 **Multi-tenant.** A `Tenant` (identity imported from a parent bot, never
 established here) owns `ManagedPool` rows. Every observation and decision is
@@ -100,6 +108,8 @@ curl -s 'https://dlmm.datapi.meteora.ag/pools?search=SOL-USDC&sort_key=tvl&order
 | Command | What it does |
 | --- | --- |
 | `pnpm dev` | run the shadow loop against the configured pool |
+| `pnpm bot` | run the Telegram bot layer (front-end workstream) |
+| `pnpm handoff:issue --user <id> --label <label>` | mint a one-time deep-link token for a tenant handoff |
 | `pnpm test` | vitest; the loop integration tests skip themselves without `DATABASE_URL` |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm lint` | ESLint, including the purity boundary rule |

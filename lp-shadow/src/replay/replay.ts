@@ -72,9 +72,9 @@ function parseArgs(argv: string[]): Args {
   };
 }
 
-type Variant = { name: string; params: Params };
+export type Variant = { name: string; params: Params };
 
-function loadVariants(base: RawConfig, paramsFile: string | undefined, label?: string): Variant[] {
+export function loadVariants(base: RawConfig, paramsFile: string | undefined, label?: string): Variant[] {
   if (!paramsFile) {
     return [{ name: label ?? 'default', params: toParams(base, BINS_PER_CLASSIC_POSITION) }];
   }
@@ -91,9 +91,9 @@ function loadVariants(base: RawConfig, paramsFile: string | undefined, label?: s
   }));
 }
 
-type StoredSnapshot = { snapshot: PoolSnapshot; costInputs: CostInputs; id: bigint };
+export type StoredSnapshot = { snapshot: PoolSnapshot; costInputs: CostInputs; id: bigint };
 
-async function loadSnapshots(
+export async function loadSnapshots(
   prisma: PrismaClient,
   managedPoolId: string,
   from: Date,

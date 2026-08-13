@@ -31,6 +31,8 @@ type PoolResponse = {
 };
 
 export type PoolStats = {
+  /** Pair name as the API reports it, e.g. "SOL-USDC". */
+  name?: string;
   tvlUsd?: number;
   vol24hUsd?: number;
   fees24hUsd?: number;
@@ -48,6 +50,7 @@ export async function fetchPoolStats(poolAddress: string): Promise<PoolStats> {
   const url = `${meteoraApiBase()}/pools/${poolAddress}`;
   const body = await fetchJson<PoolResponse>(url, { timeoutMs: 10_000 });
   return {
+    name: body.name,
     tvlUsd: body.tvl,
     vol24hUsd: body.volume?.['24h'],
     fees24hUsd: body.fees?.['24h'],
