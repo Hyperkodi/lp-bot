@@ -46,6 +46,7 @@ import {
   newBinArrayRentLamports,
   POSITION_RENT_LAMPORTS,
 } from './poller/sdkConstants.js';
+import { assertUsableSnapshot } from './poller/validate.js';
 import { buildDailyReport } from './report/daily.js';
 import { createTelegram, type Telegram } from './report/telegram.js';
 import { initRegimeState, updateRegime, type RegimeState } from './signals/regime.js';
@@ -388,6 +389,16 @@ export async function tick(
     poolFeesIntervalUsd: feeInterval.feesUsd,
     jupPrice,
   };
+
+  // Before anything mutates state or reaches the ledger. A poll that returns
+  // nonsense instead of failing would otherwise poison the vol EWMAs for the
+  // life of the process — they are exponentially weighted, so a single
+  // non-finite sample never washes out — and write a NaN the ledger keeps
+  // forever. Throwing here routes it through the existing poll-failure path:
+  // the tick is skipped, nothing is fabricated, and a persistent liar trips
+  // the consecutive-failure alert.
+  assertUsableSnapshot(snapshot);
+
   state.lastTickTs = ts;
 
   // ---- signals ------------------------------------------------------------
