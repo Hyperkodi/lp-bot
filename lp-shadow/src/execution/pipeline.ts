@@ -168,7 +168,12 @@ export class ExecutionPipeline {
       const simulation = await this.dependencies.rpc.simulate(prepared);
       if (simulation.err !== null) {
         await store.updateIntent(intent.id, 'SIMULATION_FAILED');
-        const message = `transaction simulation failed: ${String(simulation.err)}`;
+        const errorDetail =
+          typeof simulation.err === 'string'
+            ? simulation.err
+            : JSON.stringify(simulation.err);
+        const logs = simulation.logs?.length ? `\n${simulation.logs.join('\n')}` : '';
+        const message = `transaction simulation failed: ${errorDetail}${logs}`;
         await this.alert('SIMULATION_FAILED', request, message);
         throw new Error(message);
       }

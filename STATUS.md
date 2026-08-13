@@ -1,6 +1,6 @@
 # Custodial LP optimizer status
 
-Updated 2026-08-13 on `main`, starting from design commit `926d780`.
+Updated 2026-08-13, starting from design commit `926d780`.
 
 ## Completed
 
@@ -80,7 +80,7 @@ Additional safeguards:
 
 Commit: `2321627`.
 
-### Additional progress on steps 5 and 6
+### Additional progress on steps 5, 6, and 7
 
 - Deposit lifecycle handles partial deposits as waiting states, requires
   explicit confirmation, ignores unexpected tokens for strategy purposes, and
@@ -99,6 +99,21 @@ Commit: `2321627`.
   hours after the original request.
 - Obsolete Phase 1 bot copy claiming the service cannot hold a key was replaced
   with an accurate custodial warning and destination guarantee.
+- Live legacy SPL and Token-2022 mint accounts are decoded into the token-safety
+  facts before launch.
+- Confirmed positive project-wallet deltas are polled from devnet and persisted
+  idempotently as deposit events.
+- Concrete devnet-only Meteora recipes create a customizable pool, open an exact
+  70-bin PDA position, add/remove liquidity, claim and close, rebalance through
+  phase-aware completion, and sweep all remaining assets to the founder.
+- Versioned transactions resolve their address lookup tables before instruction
+  and destination inspection.
+- Chain-state readers classify pool, position, and founder-sweep state before
+  any retry.
+- A resumable custodial runner completed the entire live devnet lifecycle:
+  deposit, screen, pool creation, position open, forced rebalance, withdrawal,
+  token-account closure, and founder sweep. The project wallet finished at
+  exactly 0 SOL with no open position.
 
 Commit: `7ac7cdb`.
 
@@ -106,24 +121,26 @@ Commit: `7ac7cdb`.
 
 - `pnpm typecheck`: pass.
 - `pnpm lint`: pass.
-- `pnpm test`: 256 pass, 0 skipped when run with the local scratch Postgres at
+- `pnpm test`: 275 pass, 0 skipped when run with a fully migrated local scratch Postgres at
   `127.0.0.1:55432`; every database suite deletes every table it touches.
+- `pnpm e2e:devnet`: pass against Solana devnet. All five execution intents
+  reconciled, every recorded execution outcome finalized, and the final
+  project-wallet balance was independently verified as 0 SOL.
 - `.env` remains ignored. Its contents were never printed or changed.
 - No migration or test was pointed at the Supabase URL.
-- No on-chain transaction was signed or sent during this handoff.
+- No production or mainnet signing was enabled; all on-chain transactions were
+  restricted to devnet.
 
 ## Not completed
 
-### Step 5
+### Step 5 integration
 
-- Decode live legacy SPL and Token-2022 mint accounts into the already-tested
-  token-safety facts.
-- Poll and persist real project-wallet deposit events from devnet.
-- Implement the concrete `@meteora-ag/dlmm` recipes for existing-pool lookup,
-  customizable pool creation, a 70-bin classic position, add/remove liquidity,
-  fee claim, and full withdrawal. The generic SDK-only execution adapter and
-  all downstream guards are ready for these recipes.
-- Add gas-reserve-aware position sizing to the concrete builder.
+- Connect the implemented deposit observer, mint screen, initial-price
+  ceremony, gas-reserve gate, Meteora recipes, and chain readers to the
+  long-running bot/background worker. They are proven together by the devnet
+  runner but are not yet invoked from the Telegram onboarding flow.
+- Replace the runner's explicit test-token amounts with the production sizing
+  policy once the product inputs and approved cap values are available.
 
 ### Step 6
 
@@ -138,15 +155,6 @@ Commit: `7ac7cdb`.
   and settles earned fees, and sweeps principal, unexpected tokens, and the gas
   reserve. `/withdraw` currently records the always-available request but does
   not yet perform the on-chain sweep.
-
-### Step 7
-
-- A resumable custodial devnet runner now covers disposable mints, deposit
-  observation, mint screening, pool creation, an exact 70-bin position, forced
-  recentering, full removal, and founder sweep through the guarded pipeline.
-- The real-chain proof is not yet complete: Solana's public RPC faucet returned
-  HTTP 429 before setup. Fund the public devnet-only address recorded in
-  `lp-shadow/docs/DEVNET_CUSTODIAL_E2E.md` and rerun `pnpm e2e:devnet`.
 
 ## Deliberate TODOs and open decisions
 
@@ -169,13 +177,11 @@ Commit: `7ac7cdb`.
 ## Cold-start continuation
 
 1. Read `lp-shadow/docs/superpowers/specs/2026-08-13-lp-optimizer-design.md`.
-2. Start with the concrete devnet Meteora builder behind
-   `src/execution/MeteoraSdkBuilder`; reuse
-   `lp-shadow/devnet-proof/operator-authority.mjs` for pool creation, bin id 0,
-   mint ordering, and 70-bin position details.
-3. Add instruction fixtures from real SDK output to harden
-   `src/execution/inspect.ts`, especially versioned transactions/address lookup
-   tables and every DLMM account role.
-4. Wire real chain-state reads before writing the devnet end-to-end test.
+2. Wire the proven devnet components into the Telegram onboarding and
+   background execution worker while preserving the existing service boundary.
+3. Add captured real-SDK instruction fixtures to harden every DLMM account role
+   beyond the live end-to-end coverage.
+4. Implement the Telegram status/address-change surfaces and withdrawal worker
+   described above.
 5. Do not enable production signing until the open KMS, caps, and fee-rate
    decisions are resolved.

@@ -1,6 +1,12 @@
 import type DLMMClass from '@meteora-ag/dlmm';
 import type { ActivationType, LbPosition, StrategyType } from '@meteora-ag/dlmm';
-import { Connection, PublicKey, type Transaction } from '@solana/web3.js';
+import {
+  Connection,
+  PublicKey,
+  SYSVAR_RENT_PUBKEY,
+  SystemProgram,
+  type Transaction,
+} from '@solana/web3.js';
 import BN from 'bn.js';
 import { DLMM, sdkExport } from '../poller/dlmmSdk.js';
 import type { BuiltExecution, ChainState, ExecutionRequest } from './types.js';
@@ -33,7 +39,7 @@ export function assertGasReserve(
 
 export interface MeteoraPoolFacade {
   getActiveBin(): Promise<{ binId: number; price: string }>;
-  initializePositionByOperator(value: Record<string, unknown>): Promise<Transaction>;
+  initializePositionPda(value: Record<string, unknown>): Promise<Transaction>;
   addLiquidityByStrategy(value: Record<string, unknown>): Promise<Transaction>;
   removeLiquidity(value: Record<string, unknown>): Promise<Transaction[]>;
   getPosition(publicKey: PublicKey): Promise<unknown>;
@@ -58,17 +64,42 @@ class RealMeteoraPoolFacade implements MeteoraPoolFacade {
     return this.pool.getActiveBin();
   }
 
-  initializePositionByOperator(value: Record<string, unknown>) {
-    return this.pool.initializePositionByOperator({
-      lowerBinId: value.lowerBinId as BN,
-      positionWidth: value.positionWidth as BN,
-      owner: value.owner as PublicKey,
-      feeOwner: value.feeOwner as PublicKey,
-      base: value.base as PublicKey,
-      operator: value.operator as PublicKey,
-      payer: value.payer as PublicKey,
-      lockReleasePoint: value.lockReleasePoint as BN,
-    });
+  initializePositionPda(value: Record<string, unknown>) {
+    type MethodBuilder = {
+      accountsPartial(accounts: Record<string, PublicKey>): {
+        transaction(): Promise<Transaction>;
+      };
+    };
+    type PoolRuntime = {
+      pubkey: PublicKey;
+      program: {
+        programId: PublicKey;
+        methods: { initializePositionPda(lowerBinId: number, width: number): MethodBuilder };
+      };
+    };
+    const runtime = this.pool as unknown as PoolRuntime;
+    const lowerBinId = value.lowerBinId as BN;
+    const width = value.positionWidth as BN;
+    const owner = value.owner as PublicKey;
+    const base = value.base as PublicKey;
+    const payer = value.payer as PublicKey;
+    const eventAuthority = sdkExport<(program: PublicKey) => [PublicKey, number]>(
+      'deriveEventAuthority',
+    )(runtime.program.programId)[0];
+    return runtime.program.methods
+      .initializePositionPda(lowerBinId.toNumber(), width.toNumber())
+      .accountsPartial({
+        payer,
+        base,
+        position: value.position as PublicKey,
+        lbPair: runtime.pubkey,
+        owner,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+        eventAuthority,
+        program: runtime.program.programId,
+      })
+      .transaction();
   }
 
   addLiquidityByStrategy(value: Record<string, unknown>) {
@@ -142,8 +173,8 @@ export class RealMeteoraSdkFacade implements MeteoraSdkFacade {
 }
 
 function devnetProgramId(): PublicKey {
-  const programIds = sdkExport<Record<'devnet', PublicKey>>('LBCLMM_PROGRAM_IDS');
-  return programIds.devnet;
+  const programIds = sdkExport<Record<'devnet', string>>('LBCLMM_PROGRAM_IDS');
+  return new PublicKey(programIds.devnet);
 }
 
 export async function findExistingCustomizablePool(
@@ -343,15 +374,13 @@ export class MeteoraDevnetRecipes {
     const lower = new BN(range.lowerBinId);
     const width = new BN(range.width);
     const positionAddress = this.sdk.derivePositionAddress(poolAddress, wallet, lower, width);
-    const initialize = await pool.initializePositionByOperator({
+    const initialize = await pool.initializePositionPda({
       lowerBinId: lower,
       positionWidth: width,
+      position: positionAddress,
       owner: wallet,
-      feeOwner: wallet,
       base: wallet,
-      operator: wallet,
       payer: wallet,
-      lockReleasePoint: new BN(0),
     });
     const add = await pool.addLiquidityByStrategy({
       positionPubKey: positionAddress,

@@ -52,7 +52,14 @@ unreconciled intent, remaining position, token account, or SOL balance.
 ## Current local run
 
 The resumable public project address is
-`DqjRQTAqUWzAYNFvcRJUGH9A3tzRhzcNEwjCA13g4jXV`. The public RPC faucet returned
-HTTP 429 before any mint or LP transaction was submitted. The proof is not
-complete until this address receives devnet SOL and the runner prints
-`DEVNET E2E PASS`.
+`DqjRQTAqUWzAYNFvcRJUGH9A3tzRhzcNEwjCA13g4jXV`. After receiving 2.5 devnet
+SOL, the runner printed `DEVNET E2E PASS` on 2026-08-13. It created pool
+`8UnHvKBF27rC2UAUE3Z2qU1B4aqdiF1tXjUGUzcNEb9d`, reconciled pool creation,
+open, rebalance, full removal, and founder-sweep intents, then independently
+verified that the project wallet held 0 SOL, both project token accounts were
+closed, and no position remained open.
+
+The finalized pool-creation signature was
+`9hsFyvwxVuwuS8W6wkQzBAWzZRzJbNAkLUsKytyQuXEqBD1AvBjgjq2CgFqAW8CAfzTWzaY2zcRkuxBhhLYjPGi`.
+The finalized founder-sweep signature was
+`5vaiQjH5kCtTWdpuU9dAyJ3VqfD7AQBKcrSBdBHRC6yQi46WYgpSBsWVxx7gECq3DD1sSs7N4TShc5KJGYscgRSs`.

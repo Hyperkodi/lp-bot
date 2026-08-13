@@ -45,7 +45,7 @@ class FakePool implements MeteoraPoolFacade {
   async getActiveBin() {
     return { binId: 100, price: '1' };
   }
-  async initializePositionByOperator(value: Record<string, unknown>) {
+  async initializePositionPda(value: Record<string, unknown>) {
     this.calls.push({ method: 'initialize', value });
     return tx();
   }
@@ -136,9 +136,8 @@ describe('Meteora devnet recipes', () => {
     expect(initialize).toMatchObject({
       lowerBinId: expect.objectContaining({}),
       positionWidth: expect.objectContaining({}),
+      position: positionAddress,
       owner: wallet,
-      feeOwner: wallet,
-      operator: wallet,
       payer: wallet,
       base: wallet,
     });

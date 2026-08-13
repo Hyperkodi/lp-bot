@@ -1,4 +1,10 @@
-import { Connection, PublicKey, Transaction, type VersionedTransaction } from '@solana/web3.js';
+import {
+  Connection,
+  PublicKey,
+  Transaction,
+  TransactionMessage,
+  VersionedTransaction,
+} from '@solana/web3.js';
 import type { ExecutionRpc } from './types.js';
 
 export class DevnetRpc implements ExecutionRpc {
@@ -23,10 +29,20 @@ export class DevnetRpc implements ExecutionRpc {
   }
 
   async simulate(transaction: Transaction | VersionedTransaction): Promise<{ err: unknown; logs?: string[] }> {
-    const response =
+    const simulationTransaction =
       transaction instanceof Transaction
-        ? await this.connection.simulateTransaction(transaction, [])
-        : await this.connection.simulateTransaction(transaction, { sigVerify: false, commitment: 'confirmed' });
+        ? new VersionedTransaction(
+            new TransactionMessage({
+              payerKey: transaction.feePayer!,
+              recentBlockhash: transaction.recentBlockhash!,
+              instructions: transaction.instructions,
+            }).compileToLegacyMessage(),
+          )
+        : transaction;
+    const response = await this.connection.simulateTransaction(simulationTransaction, {
+      sigVerify: false,
+      commitment: 'confirmed',
+    });
     return { err: response.value.err, logs: response.value.logs ?? undefined };
   }
 

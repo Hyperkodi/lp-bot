@@ -12,6 +12,8 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionMessage,
+  VersionedTransaction,
 } from '@solana/web3.js';
 import BN from 'bn.js';
 import { LocalKmsAdapter, createEncryptedWallet, signTransaction } from '../src/custody/index.js';
@@ -63,7 +65,16 @@ async function sendSetup(wallet: Awaited<ReturnType<typeof createEncryptedWallet
   const latest = await connection.getLatestBlockhash('confirmed');
   transaction.feePayer = new PublicKey(wallet.publicKey);
   transaction.recentBlockhash = latest.blockhash;
-  const simulation = await connection.simulateTransaction(transaction, []);
+  const simulation = await connection.simulateTransaction(
+    new VersionedTransaction(
+      new TransactionMessage({
+        payerKey: transaction.feePayer,
+        recentBlockhash: transaction.recentBlockhash,
+        instructions: transaction.instructions,
+      }).compileToLegacyMessage(),
+    ),
+    { sigVerify: false, commitment: 'confirmed' },
+  );
   if (simulation.value.err) {
     throw new Error(`devnet setup simulation failed: ${JSON.stringify(simulation.value.err)}`);
   }
@@ -144,7 +155,7 @@ function pipeline(
     chainState,
     allowedProgramIds: new Set([
       ...STANDARD_ALLOWED_PROGRAM_IDS,
-      sdkExport<Record<'devnet', PublicKey>>('LBCLMM_PROGRAM_IDS').devnet.toBase58(),
+      sdkExport<Record<'devnet', string>>('LBCLMM_PROGRAM_IDS').devnet,
     ]),
     caps: { perTransactionSol: 10, projectRolling24hSol: 50, globalRolling24hSol: 250 },
     sign: createPrismaCustodySigner(prisma, kms),
@@ -216,11 +227,14 @@ async function main() {
     new DevnetDepositHistorySource(endpoint),
     new PrismaDepositEventStore(prisma),
   );
-  const deposits = await depositPoller.poll(walletRow.id, walletAddress);
+  await depositPoller.poll(walletRow.id, walletAddress);
+  const deposits = await prisma.depositEvent.count({ where: { projectWalletId: walletRow.id } });
   if (deposits < 3) throw new Error(`expected SOL and token deposits, observed only ${deposits}`);
-  log(`Persisted ${deposits} idempotent deposit events.`);
+  log(`Verified ${deposits} persisted idempotent deposit events.`);
 
-  const programId = sdkExport<Record<'devnet', PublicKey>>('LBCLMM_PROGRAM_IDS').devnet;
+  const programId = new PublicKey(
+    sdkExport<Record<'devnet', string>>('LBCLMM_PROGRAM_IDS').devnet,
+  );
   const derivePair = sdkExport<
     (tokenA: PublicKey, tokenB: PublicKey, program: PublicKey) => [PublicKey, number]
   >('deriveCustomizablePermissionlessLbPair');
