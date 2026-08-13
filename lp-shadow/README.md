@@ -40,10 +40,18 @@ src/
   signals/              EWMA realized vol, settle flag, regime detection    [PURE]
   decision/             the engine and the cost estimator                   [PURE]
   virtual/              the simulated position and the benchmarks           [PURE]
-  ledger/               every database write
+  ledger/               every database write; registry.ts owns tenants/pools/strategy
   report/               daily Telegram report and the go-live gate
   replay/               re-run the engine over stored snapshots
 ```
+
+**Multi-tenant.** A `Tenant` (identity imported from a parent bot, never
+established here) owns `ManagedPool` rows. Every observation and decision is
+scoped to a pool, so two pools cannot contaminate each other's evidence. One
+canonical `StrategyVersion` runs across all of them — stamped on every decision,
+so pools can be migrated to a new version without destroying the track record —
+while position size stays per pool, because size changes the answer. See
+`docs/PHASE_1_5_MULTI_TENANT.md`.
 
 **The architectural rule:** `decision/`, `virtual/`, `signals/` and `binMath.ts`
 are pure and synchronous — same inputs, same outputs, no clock reads, no network.
@@ -60,8 +68,27 @@ pnpm prisma:generate
 pnpm prisma:migrate           # `prisma migrate deploy` — runs clean on a fresh Postgres
 ```
 
-Then set the pool in `config/default.toml`. The loop refuses to start while
-`[pool].address` is empty:
+Pools are rows, not config. `config/default.toml` seeds the canonical strategy on
+first boot; the pools to shadow are registered through `src/ledger/registry.ts`
+(and, later, the bot layer):
+
+```ts
+const tenant = await upsertTenant(prisma, {
+  externalUserId: '...',        // from the parent bot
+  telegramChatId: '...',
+  label: 'Some Project',
+});
+const strategy = await publishStrategyVersion(prisma, params, 'initial');
+await addManagedPool(prisma, {
+  tenantId: tenant.id,
+  strategyVersionId: strategy.id,
+  poolAddress: '...',
+  label: 'SOL-USDC',
+  virtualNavUsd: 10_000,        // the size this project would actually deploy
+});
+```
+
+To find a pool:
 
 ```sh
 curl -s 'https://dlmm.datapi.meteora.ag/pools?search=SOL-USDC&sort_key=tvl&order_by=desc&limit=5' \
@@ -76,8 +103,8 @@ curl -s 'https://dlmm.datapi.meteora.ag/pools?search=SOL-USDC&sort_key=tvl&order
 | `pnpm test` | vitest; the loop integration tests skip themselves without `DATABASE_URL` |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm lint` | ESLint, including the purity boundary rule |
-| `pnpm replay --from 2026-08-01 --params ./config/sweep.toml` | re-run the engine over stored snapshots with alternate params |
-| `pnpm report --print-only` | build the daily report on demand |
+| `pnpm replay --from 2026-08-01 --params ./config/sweep.toml [--pool <id>]` | re-run the engine over one pool's stored snapshots with alternate params |
+| `pnpm report --print-only [--pool <id>]` | build the daily report on demand |
 | `pnpm exec tsx scripts/seed-synthetic.ts --hours 48 --wipe` | fill a scratch database with synthetic snapshots to smoke-test the pipeline |
 
 ## How the strategy decides

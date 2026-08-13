@@ -1,22 +1,22 @@
 /**
- * lp-shadow Phase 1 main loop: poll -> signals -> decide -> apply virtually ->
- * persist.
+ * lp-shadow main loop: poll -> signals -> decide -> apply virtually -> persist,
+ * for every pool being shadowed.
  *
  * Shadow mode. This process holds no keys, builds no transactions, and has no
  * code path that could send one. The terminal output of every tick is a row in
  * the ledger.
  *
  * A note on units: NAV is denominated in the pool's quote token and reported as
- * USD. That holds because Phase 1 targets a USD-stablecoin-quoted pool; point
+ * USD. That holds because this phase targets USD-stablecoin-quoted pools; point
  * it at a non-USD-quoted pool and the dollar figures become quote units wearing
  * a dollar sign.
  */
 import 'dotenv/config';
 import { planRange } from './binMath.js';
 import { isWeeklyReportDay, localDayKey, localHour, sleep } from './clock.js';
-import { loadEnv, loadRawConfig, toParams } from './config.js';
-import { decide, positionNavUsd } from './decision/engine.js';
+import { loadEnv, loadRawConfig, paramsForPool, toParams } from './config.js';
 import { estimateCost } from './decision/costs.js';
+import { decide, positionNavUsd } from './decision/engine.js';
 import type { PrismaClient } from './generated/prisma/client.js';
 import {
   CURSOR_BENCHMARK_STATE,
@@ -31,6 +31,11 @@ import {
   writeCursor,
 } from './ledger/persist.js';
 import { disconnectPrisma, getPrisma } from './ledger/prisma.js';
+import {
+  listActivePools,
+  publishStrategyVersion,
+  type ActivePool,
+} from './ledger/registry.js';
 import { errorMessage, log } from './logger.js';
 import { fetchQuote, fetchUsdPrices, SOL_MINT } from './poller/jupiter.js';
 import { PoolReader, type OnChainSnapshot } from './poller/meteora.js';
@@ -80,22 +85,39 @@ export type LoopState = {
   alertedFailure: boolean;
 };
 
+/** One pool being shadowed, plus everything needed to tick it. */
+export type Runner = {
+  pool: ActivePool;
+  params: Params;
+  reader: PoolSnapshotSource;
+  state: LoopState;
+};
+
 export async function main(): Promise<void> {
   const env = loadEnv();
   const rawConfig = loadRawConfig();
-  const params = toParams(rawConfig, BINS_PER_CLASSIC_POSITION);
-
-  if (params.poolAddress.trim() === '') {
-    throw new Error(
-      'config/default.toml: [pool].address is empty. Fill in the DLMM pool to shadow before starting.',
-    );
-  }
+  const configParams = toParams(rawConfig, BINS_PER_CLASSIC_POSITION);
 
   const prisma = getPrisma(env.DATABASE_URL);
-  const telegram = createTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID);
-  const reader = await PoolReader.create(env.RPC_URL, params.poolAddress);
+  const telegram = createTelegram(env.TELEGRAM_BOT_TOKEN);
 
-  const state = await bootstrap(prisma, params, reader);
+  // The shipped TOML is the seed for the canonical strategy. Once a version
+  // exists, the database is the source of truth and editing the TOML publishes
+  // a new version rather than silently mutating the running one.
+  const strategy = await publishStrategyVersion(
+    prisma,
+    configParams,
+    'seeded from config/default.toml',
+  );
+  log.info(`canonical strategy: v${strategy.version}`);
+
+  let runners = await buildRunners(prisma, env.RPC_URL);
+  if (runners.length === 0) {
+    log.warn(
+      'no pools in SHADOW mode — nothing to do. Add one via the registry ' +
+        '(src/ledger/registry.ts addManagedPool) or the bot layer.',
+    );
+  }
 
   let stopping = false;
   const stop = (signal: string) => {
@@ -106,40 +128,68 @@ export async function main(): Promise<void> {
   process.on('SIGTERM', () => stop('SIGTERM'));
 
   log.info(
-    `shadow loop starting: pool=${params.poolLabel} interval=${params.snapshotIntervalSec}s ` +
-      `nav=$${params.virtualNavUsd} (READ-ONLY — no keys are loaded and none can be)`,
+    `shadow loop starting: ${runners.length} pool(s) interval=${configParams.snapshotIntervalSec}s ` +
+      `(READ-ONLY — no keys are loaded and none can be)`,
   );
 
+  let sinceReconcile = 0;
   while (!stopping) {
     const started = Date.now();
-    try {
-      await tick(prisma, params, reader, telegram, state, env.RPC_URL, started);
-      state.consecutiveFailures = 0;
-      state.alertedFailure = false;
-    } catch (err) {
-      state.consecutiveFailures += 1;
-      log.error(
-        `tick failed (${state.consecutiveFailures} consecutive): ${errorMessage(err)}`,
-        err,
-      );
-      // Never fabricate a snapshot; the tick is simply skipped (§13).
-      if (state.consecutiveFailures >= params.maxConsecutiveFailures && !state.alertedFailure) {
-        state.alertedFailure = true;
-        await telegram.send(
-          `⚠️ <b>lp-shadow</b>: ${state.consecutiveFailures} consecutive poll failures.\n` +
-            `Last error: ${errorMessage(err)}`,
+
+    // One price call covers every pool on this tick rather than one each.
+    const mints = new Set<string>([SOL_MINT]);
+    for (const runner of runners) {
+      mints.add(runner.reader.baseMint);
+      mints.add(runner.reader.quoteMint);
+    }
+    const prices = await fetchUsdPrices([...mints]).catch((err) => {
+      log.warn(`jupiter price unavailable: ${errorMessage(err)}`);
+      return new Map<string, number>();
+    });
+
+    for (const runner of runners) {
+      try {
+        await tick(prisma, runner, telegram, env.RPC_URL, started, prices);
+        runner.state.consecutiveFailures = 0;
+        runner.state.alertedFailure = false;
+      } catch (err) {
+        runner.state.consecutiveFailures += 1;
+        log.error(
+          `[${runner.pool.label}] tick failed ` +
+            `(${runner.state.consecutiveFailures} consecutive): ${errorMessage(err)}`,
+          err,
         );
+        // Never fabricate a snapshot; the tick is simply skipped.
+        if (
+          runner.state.consecutiveFailures >= runner.params.maxConsecutiveFailures &&
+          !runner.state.alertedFailure
+        ) {
+          runner.state.alertedFailure = true;
+          await telegram.send(
+            runner.pool.telegramChatId,
+            `⚠️ <b>lp-shadow</b> (${runner.pool.label}): ` +
+              `${runner.state.consecutiveFailures} consecutive poll failures.\n` +
+              `Last error: ${errorMessage(err)}`,
+          );
+        }
       }
     }
 
     try {
-      await maybeSendDailyReport(prisma, params, telegram, Date.now());
+      await maybeSendDailyReports(prisma, runners, telegram, Date.now());
     } catch (err) {
       log.warn(`daily report failed: ${errorMessage(err)}`);
     }
 
+    // Pick up pools added or paused while running, without a restart.
+    sinceReconcile += 1;
+    if (sinceReconcile >= 20) {
+      sinceReconcile = 0;
+      runners = await reconcileRunners(prisma, env.RPC_URL, runners);
+    }
+
     const elapsed = Date.now() - started;
-    const wait = Math.max(0, params.snapshotIntervalSec * 1000 - elapsed);
+    const wait = Math.max(0, configParams.snapshotIntervalSec * 1000 - elapsed);
     if (!stopping) await sleep(wait);
   }
 
@@ -147,27 +197,85 @@ export async function main(): Promise<void> {
   log.info('shadow loop stopped');
 }
 
+async function buildRunners(prisma: PrismaClient, rpcUrl: string): Promise<Runner[]> {
+  const pools = await listActivePools(prisma);
+  const runners: Runner[] = [];
+  for (const pool of pools) {
+    try {
+      const params = paramsForPool(
+        { ...pool.strategyParams, poolAddress: pool.poolAddress, poolLabel: pool.label },
+        pool,
+      );
+      const reader = await PoolReader.create(rpcUrl, pool.poolAddress);
+      const state = await bootstrap(prisma, params, reader, pool.managedPoolId);
+      runners.push({ pool, params, reader, state });
+    } catch (err) {
+      log.error(`could not start pool ${pool.label} (${pool.poolAddress}): ${errorMessage(err)}`);
+    }
+  }
+  return runners;
+}
+
+/** Adds newly-registered pools and drops ones that left SHADOW mode. */
+async function reconcileRunners(
+  prisma: PrismaClient,
+  rpcUrl: string,
+  current: Runner[],
+): Promise<Runner[]> {
+  const active = await listActivePools(prisma);
+  const activeIds = new Set(active.map((p) => p.managedPoolId));
+  const keep = current.filter((r) => activeIds.has(r.pool.managedPoolId));
+  const known = new Set(keep.map((r) => r.pool.managedPoolId));
+
+  for (const pool of active) {
+    if (known.has(pool.managedPoolId)) continue;
+    try {
+      const params = paramsForPool(
+        { ...pool.strategyParams, poolAddress: pool.poolAddress, poolLabel: pool.label },
+        pool,
+      );
+      const reader = await PoolReader.create(rpcUrl, pool.poolAddress);
+      const state = await bootstrap(prisma, params, reader, pool.managedPoolId);
+      keep.push({ pool, params, reader, state });
+      log.info(`picked up new pool ${pool.label} (${pool.poolAddress})`);
+    } catch (err) {
+      log.error(`could not start pool ${pool.label}: ${errorMessage(err)}`);
+    }
+  }
+
+  if (keep.length !== current.length) {
+    log.info(`now shadowing ${keep.length} pool(s)`);
+  }
+  return keep;
+}
+
 /**
- * Crash-safe boot (§13): reload the virtual position from the last event and
- * re-warm the vol EWMAs and the settle window from stored snapshots, so a
- * restart does not reset the strategy's memory.
+ * Crash-safe boot: reload the virtual position from the last event and re-warm
+ * the vol EWMAs and the settle window from stored snapshots, so a restart does
+ * not reset the strategy's memory.
  */
 export async function bootstrap(
   prisma: PrismaClient,
   params: Params,
   reader: PoolSnapshotSource,
+  managedPoolId: string,
 ): Promise<LoopState> {
   const state: LoopState = {
     regime: initRegimeState(),
     position: null,
     benchmarks: null,
-    lastCumulativeFeeUsd: await readCursor<number>(prisma, CURSOR_CUMULATIVE_FEES),
+    lastCumulativeFeeUsd: await readCursor<number>(
+      prisma,
+      managedPoolId,
+      CURSOR_CUMULATIVE_FEES,
+    ),
     lastTickTs: null,
     consecutiveFailures: 0,
     alertedFailure: false,
   };
 
   const lastEvent = await prisma.virtualPositionEvent.findFirst({
+    where: { managedPoolId },
     orderBy: { ts: 'desc' },
     select: { detailJson: true, ts: true },
   });
@@ -185,13 +293,17 @@ export async function bootstrap(
     }
   }
 
-  state.benchmarks = await readCursor<BenchmarkState>(prisma, CURSOR_BENCHMARK_STATE);
+  state.benchmarks = await readCursor<BenchmarkState>(
+    prisma,
+    managedPoolId,
+    CURSOR_BENCHMARK_STATE,
+  );
 
   // Re-warm vol from stored history. A window of 4x the slow half-life is
   // plenty for the EWMA to forget its cold start.
   const warmupMs = Math.max(params.volSlowHalfLifeMin * 4, 240) * MS_PER_MIN;
   const history = await prisma.snapshot.findMany({
-    where: { ts: { gte: new Date(Date.now() - warmupMs) } },
+    where: { managedPoolId, ts: { gte: new Date(Date.now() - warmupMs) } },
     orderBy: { ts: 'asc' },
     select: { ts: true, activePrice: true },
   });
@@ -217,7 +329,6 @@ export async function bootstrap(
   state.lastTickTs = history.at(-1)?.ts.getTime() ?? null;
   log.info(`re-warmed vol EWMAs from ${history.length} stored snapshots`);
 
-  // Touch the reader so a misconfigured pool fails loudly at boot, not an hour in.
   log.debug(`pool base=${reader.baseMint} quote=${reader.quoteMint}`);
 
   return state;
@@ -225,26 +336,24 @@ export async function bootstrap(
 
 export async function tick(
   prisma: PrismaClient,
-  params: Params,
-  reader: PoolSnapshotSource,
+  runner: Runner,
   telegram: Telegram,
-  state: LoopState,
   rpcUrl: string,
   ts: number,
+  prices: Map<string, number>,
 ): Promise<void> {
+  const { pool, params, reader, state } = runner;
+  const managedPoolId = pool.managedPoolId;
+
   // ---- poll ---------------------------------------------------------------
   const onChain = await reader.snapshot(ts);
 
-  const [stats, prices, priorityFee] = await Promise.all([
-    fetchPoolStats(params.poolAddress).catch((err) => {
+  const [stats, priorityFee] = await Promise.all([
+    fetchPoolStats(pool.poolAddress).catch((err) => {
       log.warn(`meteora pool stats unavailable: ${errorMessage(err)}`);
       return null as PoolStats | null;
     }),
-    fetchUsdPrices([SOL_MINT, onChain.baseMint, onChain.quoteMint]).catch((err) => {
-      log.warn(`jupiter price unavailable: ${errorMessage(err)}`);
-      return new Map<string, number>();
-    }),
-    fetchPriorityFee(rpcUrl, [params.poolAddress]),
+    fetchPriorityFee(rpcUrl, [pool.poolAddress]),
   ]);
 
   const elapsedSec =
@@ -257,7 +366,7 @@ export async function tick(
     : { feesUsd: undefined, source: 'none' as const };
   if (stats?.cumulativeTradeFeeUsd !== undefined) {
     state.lastCumulativeFeeUsd = stats.cumulativeTradeFeeUsd;
-    await writeCursor(prisma, CURSOR_CUMULATIVE_FEES, stats.cumulativeTradeFeeUsd);
+    await writeCursor(prisma, managedPoolId, CURSOR_CUMULATIVE_FEES, stats.cumulativeTradeFeeUsd);
   }
 
   const quoteUsd = prices.get(onChain.quoteMint) ?? 1;
@@ -285,31 +394,40 @@ export async function tick(
   const { state: regime, signals } = updateRegime(state.regime, snapshot, params);
   state.regime = regime;
 
+  const scope = { managedPoolId, strategyVersionId: pool.strategyVersionId };
+
   // ---- open the position on the first usable tick -------------------------
   if (state.position === null) {
     if (!signals.volReliable) {
       log.info(
-        `waiting for volatility to be measurable before opening: ` +
+        `[${pool.label}] waiting for volatility to be measurable before opening: ` +
           `${signals.volSamples}/${params.volMinSamples} samples`,
       );
-      await persistTick(prisma, snapshot, signals, await buildCostInputs(
-        params,
-        onChain,
+      await saveSnapshot(
+        prisma,
+        managedPoolId,
         snapshot,
-        priorityFee.microLamportsPerCu,
-        solPriceUsd,
-        quoteUsd,
-        params.virtualNavUsd,
-        null,
-      ));
+        signals,
+        await buildCostInputs(
+          params,
+          onChain,
+          snapshot,
+          priorityFee.microLamportsPerCu,
+          solPriceUsd,
+          quoteUsd,
+          params.virtualNavUsd,
+          null,
+        ),
+      );
       return;
     }
     const plan = planRange(snapshot.activeBinId, snapshot.binStepBps, signals, params);
     state.position = openPosition(snapshot, plan.lowerBinId, plan.upperBinId, params.virtualNavUsd);
     state.benchmarks = initBenchmarks(snapshot, params.virtualNavUsd);
-    await writeCursor(prisma, CURSOR_BENCHMARK_STATE, state.benchmarks);
+    await writeCursor(prisma, managedPoolId, CURSOR_BENCHMARK_STATE, state.benchmarks);
     await saveVirtualEvent(
       prisma,
+      managedPoolId,
       'OPEN',
       state.position,
       positionNavUsd(state.position, snapshot),
@@ -317,11 +435,12 @@ export async function tick(
       {
         plan,
         volSlowAnnual: signals.volSlowAnnual,
+        strategyVersion: pool.strategyVersion,
         note: 'virtual open — no transaction was built or sent',
       },
     );
     log.info(
-      `virtual position opened: bins [${plan.lowerBinId}, ${plan.upperBinId}] ` +
+      `[${pool.label}] virtual position opened: bins [${plan.lowerBinId}, ${plan.upperBinId}] ` +
         `(${plan.binsPerSide * 2 + 1} bins) at price ${snapshot.activePrice}`,
     );
   }
@@ -385,13 +504,14 @@ export async function tick(
   state.position = position;
 
   // ---- persist ------------------------------------------------------------
-  const snapshotId = await persistTick(prisma, snapshot, signals, costInputs);
-  await saveDecision(prisma, snapshotId, decision, applied, ts);
+  const snapshotId = await saveSnapshot(prisma, managedPoolId, snapshot, signals, costInputs);
+  await saveDecision(prisma, scope, snapshotId, decision, applied, ts);
 
   const finalNav = positionNavUsd(position, snapshot);
   if (eventKind) {
-    await saveVirtualEvent(prisma, eventKind, position, finalNav, ts, {
+    await saveVirtualEvent(prisma, managedPoolId, eventKind, position, finalNav, ts, {
       reasons: decision.reasons,
+      strategyVersion: pool.strategyVersion,
       note: 'virtual only — no transaction was built or sent',
     });
   }
@@ -399,7 +519,7 @@ export async function tick(
     position.status === 'ACTIVE' &&
     snapshot.activeBinId >= position.lowerBinId &&
     snapshot.activeBinId <= position.upperBinId;
-  await saveVirtualEvent(prisma, 'MARK', position, finalNav, ts, {
+  await saveVirtualEvent(prisma, managedPoolId, 'MARK', position, finalNav, ts, {
     inRange,
     feesTick: accrued.feesTick,
     activeBinShare: accrued.share,
@@ -407,13 +527,14 @@ export async function tick(
   });
 
   const marks = markBenchmarks(state.benchmarks, position, snapshot);
-  await saveBenchmarkMark(prisma, marks, ts);
-  await writeCursor(prisma, CURSOR_BENCHMARK_STATE, state.benchmarks);
+  await saveBenchmarkMark(prisma, managedPoolId, marks, ts);
+  await writeCursor(prisma, managedPoolId, CURSOR_BENCHMARK_STATE, state.benchmarks);
 
   // ---- alerts -------------------------------------------------------------
   if (decision.kind === 'EXIT') {
     await telegram.send(
-      `🚨 <b>lp-shadow EXIT</b> (${params.poolLabel})\n` +
+      pool.telegramChatId,
+      `🚨 <b>lp-shadow EXIT</b> (${pool.label})\n` +
         decision.reasons.map((r) => `• ${r}`).join('\n') +
         `\n\nVirtual NAV ${finalNav.toFixed(2)} vs HODL ${marks.hodlNavUsd.toFixed(2)}`,
     );
@@ -423,7 +544,8 @@ export async function tick(
     const divergence = Math.abs(jupPrice - snapshot.activePrice) / snapshot.activePrice;
     if (divergence * 100 > params.priceDivergenceAlertPct) {
       await telegram.send(
-        `⚠️ <b>lp-shadow price divergence</b> (${params.poolLabel})\n` +
+        pool.telegramChatId,
+        `⚠️ <b>lp-shadow price divergence</b> (${pool.label})\n` +
           `pool ${snapshot.activePrice.toFixed(6)} vs Jupiter ${jupPrice.toFixed(6)} ` +
           `(${(divergence * 100).toFixed(2)}%)`,
       );
@@ -431,20 +553,12 @@ export async function tick(
   }
 
   log.info(
-    `${decision.kind} bin=${snapshot.activeBinId} price=${snapshot.activePrice.toFixed(6)} ` +
+    `[${pool.label}] ${decision.kind} bin=${snapshot.activeBinId} ` +
+      `price=${snapshot.activePrice.toFixed(6)} ` +
       `nav=$${finalNav.toFixed(2)} hodl=$${marks.hodlNavUsd.toFixed(2)} ` +
       `fees=$${position.cumFeesQuote.toFixed(4)} costs=$${position.cumCostsQuote.toFixed(2)} ` +
       `volSlow=${(signals.volSlowAnnual * 100).toFixed(1)}%`,
   );
-}
-
-async function persistTick(
-  prisma: PrismaClient,
-  snapshot: PoolSnapshot,
-  signals: Parameters<typeof saveSnapshot>[2],
-  costInputs: CostInputs,
-): Promise<bigint> {
-  return saveSnapshot(prisma, snapshot, signals, costInputs);
 }
 
 /**
@@ -517,23 +631,47 @@ async function buildCostInputs(
   };
 }
 
-async function maybeSendDailyReport(
+/**
+ * One report per tenant per day, covering all of that tenant's pools — not one
+ * message per pool, which would be unreadable for a project running several.
+ */
+async function maybeSendDailyReports(
   prisma: PrismaClient,
-  params: Params,
+  runners: Runner[],
   telegram: Telegram,
   now: number,
 ): Promise<void> {
-  if (localHour(now, params.reportTimezone) !== params.reportDailyHourLocal) return;
-  const dayKey = localDayKey(now, params.reportTimezone);
-  const last = await readCursor<string>(prisma, CURSOR_LAST_DAILY_REPORT);
-  if (last === dayKey) return;
+  const byTenant = new Map<string, Runner[]>();
+  for (const runner of runners) {
+    const list = byTenant.get(runner.pool.tenantId) ?? [];
+    list.push(runner);
+    byTenant.set(runner.pool.tenantId, list);
+  }
 
-  const report = await buildDailyReport(prisma, params, now, {
-    includeGoLive: isWeeklyReportDay(now, params.reportTimezone),
-  });
-  await telegram.send(report.text);
-  await writeCursor(prisma, CURSOR_LAST_DAILY_REPORT, dayKey);
-  log.info(`daily report sent for ${dayKey}`);
+  for (const [tenantId, tenantRunners] of byTenant) {
+    const params = tenantRunners[0]!.params;
+    if (localHour(now, params.reportTimezone) !== params.reportDailyHourLocal) continue;
+    const dayKey = localDayKey(now, params.reportTimezone);
+    const last = await readCursor<string>(prisma, tenantId, CURSOR_LAST_DAILY_REPORT);
+    if (last === dayKey) continue;
+
+    const includeGoLive = isWeeklyReportDay(now, params.reportTimezone);
+    const sections: string[] = [];
+    for (const runner of tenantRunners) {
+      const report = await buildDailyReport(
+        prisma,
+        runner.params,
+        runner.pool.managedPoolId,
+        now,
+        { includeGoLive },
+      );
+      sections.push(report.text);
+    }
+
+    await telegram.send(tenantRunners[0]!.pool.telegramChatId, sections.join('\n\n———\n\n'));
+    await writeCursor(prisma, tenantId, CURSOR_LAST_DAILY_REPORT, dayKey);
+    log.info(`daily report sent to tenant ${tenantId} for ${dayKey}`);
+  }
 }
 
 // Only start the loop when this file is the process entrypoint; importing it

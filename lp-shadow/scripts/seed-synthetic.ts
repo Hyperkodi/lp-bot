@@ -11,9 +11,10 @@
  * its output as evidence about the strategy.
  */
 import 'dotenv/config';
-import { loadEnv, loadRawConfig, toParams } from '../src/config.js';
+import { loadEnv, loadRawConfig, paramsForPool, toParams } from '../src/config.js';
 import { disconnectPrisma, getPrisma } from '../src/ledger/prisma.js';
 import { saveSnapshot } from '../src/ledger/persist.js';
+import { addManagedPool, publishStrategyVersion, upsertTenant } from '../src/ledger/registry.js';
 import { log } from '../src/logger.js';
 import { BINS_PER_CLASSIC_POSITION } from '../src/poller/sdkConstants.js';
 import { initRegimeState, updateRegime } from '../src/signals/regime.js';
@@ -38,11 +39,11 @@ function arg(flag: string, fallback: string): string {
 
 async function main(): Promise<void> {
   const env = loadEnv();
-  const params = toParams(loadRawConfig(), BINS_PER_CLASSIC_POSITION);
+  const configParams = toParams(loadRawConfig(), BINS_PER_CLASSIC_POSITION);
   const prisma = getPrisma(env.DATABASE_URL);
 
   const hours = Number(arg('--hours', '48'));
-  const intervalSec = params.snapshotIntervalSec;
+  const intervalSec = configParams.snapshotIntervalSec;
   const ticks = Math.floor((hours * 3600) / intervalSec);
   const rand = mulberry32(Number(arg('--seed', '42')));
 
@@ -54,8 +55,43 @@ async function main(): Promise<void> {
     await prisma.virtualPositionEvent.deleteMany({});
     await prisma.benchmarkMark.deleteMany({});
     await prisma.keyValue.deleteMany({});
+    await prisma.managedPool.deleteMany({});
+    await prisma.strategyVersion.deleteMany({});
+    await prisma.tenant.deleteMany({});
     log.info('wiped existing ledger rows');
   }
+
+  // A synthetic tenant and pool to hang the snapshots off. Both are obviously
+  // fake so they can never be mistaken for a real shadow run.
+  const tenant = await upsertTenant(prisma, {
+    externalUserId: 'synthetic-seed',
+    telegramChatId: 'synthetic-seed',
+    label: 'Synthetic seed (local dev only)',
+  });
+  const strategy = await publishStrategyVersion(
+    prisma,
+    configParams,
+    'seeded from config/default.toml',
+  );
+  const existing = await prisma.managedPool.findFirst({
+    where: { tenantId: tenant.id, poolAddress: 'SYNTHETIC_POOL', role: 'PRIMARY' },
+    select: { id: true },
+  });
+  const managedPool =
+    existing ??
+    (await addManagedPool(prisma, {
+      tenantId: tenant.id,
+      strategyVersionId: strategy.id,
+      poolAddress: 'SYNTHETIC_POOL',
+      label: 'SYNTHETIC (local dev only)',
+      virtualNavUsd: configParams.virtualNavUsd,
+    }));
+
+  const params = paramsForPool(configParams, {
+    poolAddress: 'SYNTHETIC_POOL',
+    label: 'SYNTHETIC (local dev only)',
+    virtualNavUsd: configParams.virtualNavUsd,
+  });
 
   const binStepBps = 20;
   const startTs = Date.now() - ticks * intervalSec * 1000;
@@ -100,7 +136,7 @@ async function main(): Promise<void> {
       newBinArrayRentLamports: 0,
     };
 
-    await saveSnapshot(prisma, snapshot, updated.signals, costInputs);
+    await saveSnapshot(prisma, managedPool.id, snapshot, updated.signals, costInputs);
   }
 
   log.info(`seeded ${ticks} synthetic snapshots spanning ${hours}h`);

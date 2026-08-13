@@ -43,9 +43,14 @@ export type GoLiveVerdict = {
 export async function evaluateGoLive(
   prisma: PrismaClient,
   params: Params,
+  managedPoolId: string,
   now: number,
 ): Promise<GoLiveVerdict> {
-  const first = await prisma.snapshot.findFirst({ orderBy: { ts: 'asc' }, select: { ts: true } });
+  const first = await prisma.snapshot.findFirst({
+    where: { managedPoolId },
+    orderBy: { ts: 'asc' },
+    select: { ts: true },
+  });
   const shadowDays = first ? (now - first.ts.getTime()) / MS_PER_DAY : 0;
 
   // Regime change: the slow-vol series doubling or halving anywhere inside the
@@ -53,7 +58,8 @@ export async function evaluateGoLive(
   const volRows = await prisma.$queryRaw<{ bucket: Date; vol: unknown }[]>`
     SELECT date_trunc('hour', "ts") AS bucket, avg("volSlow") AS vol
     FROM "Snapshot"
-    WHERE "volSlow" IS NOT NULL AND "volSlow" > 0
+    WHERE "managedPoolId" = ${managedPoolId}
+      AND "volSlow" IS NOT NULL AND "volSlow" > 0
     GROUP BY 1
     ORDER BY 1 ASC
   `;
@@ -63,7 +69,10 @@ export async function evaluateGoLive(
   const regimeRatio = minVol > 0 ? maxVol / minVol : 0;
   const hasRegimeChange = regimeRatio >= params.goLiveRegimeChangeRatio;
 
-  const latest = await prisma.benchmarkMark.findFirst({ orderBy: { ts: 'desc' } });
+  const latest = await prisma.benchmarkMark.findFirst({
+    where: { managedPoolId },
+    orderBy: { ts: 'desc' },
+  });
   const strategyUsd = latest ? toNum(latest.strategyUsd) : 0;
   const hodlUsd = latest ? toNum(latest.hodlNavUsd) : 0;
   const beatsHodl = latest !== null && strategyUsd > hodlUsd;
@@ -95,22 +104,23 @@ export type DailyReport = {
 export async function buildDailyReport(
   prisma: PrismaClient,
   params: Params,
+  managedPoolId: string,
   now: number,
   opts: { includeGoLive: boolean },
 ): Promise<DailyReport> {
   const since = new Date(now - MS_PER_DAY);
 
   const [latestSnapshot, latestMark, latestEvent, decisions, marks] = await Promise.all([
-    prisma.snapshot.findFirst({ orderBy: { ts: 'desc' } }),
-    prisma.benchmarkMark.findFirst({ orderBy: { ts: 'desc' } }),
-    prisma.virtualPositionEvent.findFirst({ orderBy: { ts: 'desc' } }),
+    prisma.snapshot.findFirst({ where: { managedPoolId }, orderBy: { ts: 'desc' } }),
+    prisma.benchmarkMark.findFirst({ where: { managedPoolId }, orderBy: { ts: 'desc' } }),
+    prisma.virtualPositionEvent.findFirst({ where: { managedPoolId }, orderBy: { ts: 'desc' } }),
     prisma.decision.findMany({
-      where: { ts: { gte: since } },
+      where: { managedPoolId, ts: { gte: since } },
       orderBy: { ts: 'asc' },
       select: { ts: true, kind: true, reasonsJson: true, applied: true },
     }),
     prisma.virtualPositionEvent.findMany({
-      where: { ts: { gte: since }, kind: 'MARK' },
+      where: { managedPoolId, ts: { gte: since }, kind: 'MARK' },
       orderBy: { ts: 'asc' },
       select: { detailJson: true },
     }),
@@ -208,7 +218,7 @@ export async function buildDailyReport(
 
   let verdictPass = false;
   if (opts.includeGoLive) {
-    const verdict = await evaluateGoLive(prisma, params, now);
+    const verdict = await evaluateGoLive(prisma, params, managedPoolId, now);
     verdictPass = verdict.pass;
     lines.push('<b>Go-live gate (advisory)</b>');
     for (const line of verdict.lines) lines.push(escapeHtml(line));

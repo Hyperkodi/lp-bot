@@ -136,6 +136,24 @@ export function toParams(cfg: RawConfig, maxBinsPerPosition: number): Params {
   };
 }
 
+/**
+ * Overlays a ManagedPool's identity and sizing onto the canonical strategy.
+ *
+ * The strategy is shared across every pool; the position size is not — it is the
+ * capital that project would actually deploy, and it changes the answer.
+ */
+export function paramsForPool(
+  strategyParams: Params,
+  pool: { poolAddress: string; label: string; virtualNavUsd: number },
+): Params {
+  return {
+    ...strategyParams,
+    poolAddress: pool.poolAddress,
+    poolLabel: pool.label,
+    virtualNavUsd: pool.virtualNavUsd,
+  };
+}
+
 export function loadRawConfig(path?: string): RawConfig {
   const file = resolve(path ?? process.env.LP_SHADOW_CONFIG ?? 'config/default.toml');
   const parsed = parseToml(readFileSync(file, 'utf8'));

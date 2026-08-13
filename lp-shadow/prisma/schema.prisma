@@ -1,8 +1,12 @@
-// lp-shadow Phase 1 ledger.
+// lp-shadow ledger.
 //
 // Everything the loop observes and every decision it would have taken is
 // written here. Nothing in this schema references a wallet, a keypair, or a
-// signature — Phase 1 holds no funds.
+// signature — this phase holds no funds.
+//
+// Multi-tenant: a Tenant (a user, with identity imported from the parent bot)
+// owns ManagedPool rows. Every observation and decision is scoped to a
+// ManagedPool, so two pools can never contaminate each other's evidence.
 
 generator client {
   provider = "prisma-client"
@@ -16,46 +20,139 @@ datasource db {
   provider = "postgresql"
 }
 
+/// A user of the LP agent.
+///
+/// Identity is *imported*, never established here: the parent bot authenticates
+/// the user and hands off via a signed deep link, and this row is upserted from
+/// that payload. The LP module owns no authentication.
+model Tenant {
+  id             String        @id @default(cuid())
+  /// The parent bot's user/account id. Source of truth lives there.
+  externalUserId String        @unique
+  /// The solo chat this tenant was handed off into. Reports and alerts go here.
+  telegramChatId String        @unique
+  label          String
+  status         String        @default("ACTIVE") // ACTIVE | SUSPENDED
+  createdAt      DateTime      @default(now())
+  pools          ManagedPool[]
+
+  @@index([status])
+}
+
+/// A canonical, versioned parameter set.
+///
+/// One strategy runs across every pool. Versioning it (rather than letting each
+/// pool carry its own copy) is what makes an aggregate claim possible: "v1 beat
+/// HODL on 12 of 16 pools" is only meaningful if v1 means one specific thing.
+model StrategyVersion {
+  id         String        @id @default(cuid())
+  version    Int           @unique
+  /// The flat Params object, minus per-pool sizing.
+  paramsJson Json
+  /// Why this version exists. Required — an unexplained parameter change is how
+  /// a track record quietly stops meaning anything.
+  note       String
+  createdAt  DateTime      @default(now())
+  pools      ManagedPool[]
+  decisions  Decision[]
+}
+
+/// One pool being shadowed for one tenant.
+model ManagedPool {
+  id                String          @id @default(cuid())
+  tenantId          String
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  strategyVersionId String
+  strategyVersion   StrategyVersion @relation(fields: [strategyVersionId], references: [id])
+  poolAddress       String
+  label             String
+
+  /// Position size. The *strategy* is canonical; the *size* is not — it is the
+  /// capital this project would actually deploy, and it changes the answer
+  /// (fixed costs dominate a small position, self-dilution and slippage eat a
+  /// large one).
+  virtualNavUsd Decimal @db.Decimal(38, 18)
+
+  /// PRIMARY  — the project's real intended size.
+  /// REFERENCE — a fixed size run alongside, so results are comparable across
+  ///             pools of different depth for the aggregate track record.
+  role String @default("PRIMARY")
+
+  /// SHADOW | PAUSED | STOPPED.
+  ///
+  /// This phase accepts no other value and the loop asserts it. When a signing
+  /// phase adds LIVE, this column is where the kill switch lives: flip to
+  /// PAUSED and the agent stops acting, with no deploy.
+  mode      String    @default("SHADOW")
+  createdAt DateTime  @default(now())
+  stoppedAt DateTime?
+
+  snapshots  Snapshot[]
+  decisions  Decision[]
+  events     VirtualPositionEvent[]
+  benchmarks BenchmarkMark[]
+  replayRuns ReplayRun[]
+
+  /// One run per pool per role per tenant. Different tenants may shadow the
+  /// same pool independently.
+  @@unique([tenantId, poolAddress, role])
+  @@index([mode])
+  @@index([tenantId])
+}
+
 /// One poll of the pool. Written on every successful tick; never fabricated.
 model Snapshot {
-  id             BigInt   @id @default(autoincrement())
-  ts             DateTime @default(now())
-  activeBinId    Int
+  id                  BigInt      @id @default(autoincrement())
+  managedPoolId       String
+  managedPool         ManagedPool @relation(fields: [managedPoolId], references: [id], onDelete: Cascade)
+  ts                  DateTime    @default(now())
+  activeBinId         Int
   /// Quote per base, read off the active bin.
-  activePrice    Decimal  @db.Decimal(38, 18)
+  activePrice         Decimal     @db.Decimal(38, 18)
   /// Jupiter cross-check; an alert fires when divergence exceeds 1%.
-  jupPrice       Decimal? @db.Decimal(38, 18)
-  binStepBps     Int
+  jupPrice            Decimal?    @db.Decimal(38, 18)
+  binStepBps          Int
   /// Current total fee (base + dynamic) in bps, from the SDK.
-  feeBps         Decimal  @db.Decimal(18, 6)
+  feeBps              Decimal     @db.Decimal(18, 6)
   /// Total liquidity in the active bin, valued in quote units.
-  liqActiveBin   Decimal  @db.Decimal(38, 18)
+  liqActiveBin        Decimal     @db.Decimal(38, 18)
   /// [{ binId, liquidity }] for +/- N bins around the active bin.
-  liqNearbyJson  Json
-  poolTvlUsd     Decimal? @db.Decimal(38, 18)
-  poolVol24hUsd  Decimal? @db.Decimal(38, 18)
-  poolFees24hUsd Decimal? @db.Decimal(38, 18)
+  liqNearbyJson       Json
+  poolTvlUsd          Decimal?    @db.Decimal(38, 18)
+  poolVol24hUsd       Decimal?    @db.Decimal(38, 18)
+  poolFees24hUsd      Decimal?    @db.Decimal(38, 18)
   /// Pool fees attributed to the interval since the previous snapshot.
-  poolFeesIntervalUsd Decimal? @db.Decimal(38, 18)
+  poolFeesIntervalUsd Decimal?    @db.Decimal(38, 18)
   /// Annualized realized vol from the signal layer.
-  volFast        Decimal? @db.Decimal(18, 8)
-  volSlow        Decimal? @db.Decimal(18, 8)
+  volFast             Decimal?    @db.Decimal(18, 8)
+  volSlow             Decimal?    @db.Decimal(18, 8)
   /// CostInputs as they were live at this tick (quote, priority fee, SOL price,
   /// bin-array rent). Stored so replay prices decisions with the numbers that
   /// actually applied instead of re-deriving them from today's market.
-  costInputsJson Json?
-  decisions      Decision[]
+  costInputsJson      Json?
+  decisions           Decision[]
 
-  @@index([ts])
+  @@index([managedPoolId, ts])
 }
 
-/// The decision the engine reached for a snapshot. Phase 1 stops here: the
+/// The decision the engine reached for a snapshot. This phase stops here: the
 /// decision is applied to the virtual position and nothing else.
 model Decision {
-  id          BigInt   @id @default(autoincrement())
-  snapshotId  BigInt
-  snapshot    Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-  ts          DateTime @default(now())
+  id            BigInt      @id @default(autoincrement())
+  managedPoolId String
+  managedPool   ManagedPool @relation(fields: [managedPoolId], references: [id], onDelete: Cascade)
+  snapshotId    BigInt
+  snapshot      Snapshot    @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  /// Which parameter set produced this decision.
+  ///
+  /// Stamped per decision so pools can be migrated to a new strategy version
+  /// without destroying the track record — any aggregate claim can still be
+  /// sliced by version, and replay can re-run any window under any version.
+  strategyVersionId String
+  strategyVersion   StrategyVersion @relation(fields: [strategyVersionId], references: [id])
+
+  ts DateTime @default(now())
   /// HOLD | COMPOUND | REBALANCE | EXIT
   kind        String
   /// string[] — every gate that passed or failed, in evaluation order.
@@ -67,70 +164,85 @@ model Decision {
   /// Whether the decision was applied to the virtual position.
   applied     Boolean  @default(false)
 
-  @@index([ts])
-  @@index([kind, ts])
+  @@index([managedPoolId, ts])
+  @@index([managedPoolId, kind, ts])
   @@index([snapshotId])
+  @@index([strategyVersionId])
 }
 
 /// Append-only history of the simulated position. The latest row is the
 /// position; the loop rebuilds its in-memory state from it on boot.
 model VirtualPositionEvent {
-  id           BigInt   @id @default(autoincrement())
-  ts           DateTime @default(now())
+  id            BigInt      @id @default(autoincrement())
+  managedPoolId String
+  managedPool   ManagedPool @relation(fields: [managedPoolId], references: [id], onDelete: Cascade)
+  ts            DateTime    @default(now())
   /// OPEN | COMPOUND | REBALANCE | EXIT | MARK
-  kind         String
-  lowerBinId   Int?
-  upperBinId   Int?
+  kind          String
+  lowerBinId    Int?
+  upperBinId    Int?
   /// Virtual token amounts after the event.
-  baseAmount   Decimal  @db.Decimal(38, 18)
-  quoteAmount  Decimal  @db.Decimal(38, 18)
+  baseAmount    Decimal     @db.Decimal(38, 18)
+  quoteAmount   Decimal     @db.Decimal(38, 18)
   /// Cumulative virtual fees, quote units.
-  feesAccruedQ Decimal  @db.Decimal(38, 18)
+  feesAccruedQ  Decimal     @db.Decimal(38, 18)
   /// Cumulative virtual costs charged, quote units.
-  costsPaidQ   Decimal  @db.Decimal(38, 18)
-  navUsd       Decimal  @db.Decimal(38, 18)
-  detailJson   Json?
+  costsPaidQ    Decimal     @db.Decimal(38, 18)
+  navUsd        Decimal     @db.Decimal(38, 18)
+  detailJson    Json?
 
-  @@index([ts])
-  @@index([kind, ts])
+  @@index([managedPoolId, ts])
+  @@index([managedPoolId, kind, ts])
 }
 
 /// Benchmarks marked on every snapshot so the equity curves stay comparable.
 model BenchmarkMark {
-  id           BigInt   @id @default(autoincrement())
-  ts           DateTime @default(now())
+  id            BigInt      @id @default(autoincrement())
+  managedPoolId String
+  managedPool   ManagedPool @relation(fields: [managedPoolId], references: [id], onDelete: Cascade)
+  ts            DateTime    @default(now())
   /// Initial 50/50 basket, marked to market. This is the bar to beat.
-  hodlNavUsd   Decimal  @db.Decimal(38, 18)
-  /// v2-style full-range LP proxy (see §10). Crude, and labeled as such.
-  fullRangeUsd Decimal  @db.Decimal(38, 18)
+  hodlNavUsd    Decimal     @db.Decimal(38, 18)
+  /// v2-style full-range LP proxy (see README). Crude, and labeled as such.
+  fullRangeUsd  Decimal     @db.Decimal(38, 18)
   /// Virtual position NAV including fees, net of costs.
-  strategyUsd  Decimal  @db.Decimal(38, 18)
+  strategyUsd   Decimal     @db.Decimal(38, 18)
 
-  @@index([ts])
+  @@index([managedPoolId, ts])
 }
 
 /// Cursors and other small bits of loop state (e.g. last-seen cumulative pool
 /// fees, used to derive per-interval fees).
+///
+/// `scope` is "global", a ManagedPool id, or a Tenant id. A non-null scope
+/// column rather than a nullable foreign key, because Postgres treats NULL as
+/// distinct from NULL in unique constraints — a nullable key would silently
+/// fail to enforce uniqueness on exactly the global rows that need it.
 model KeyValue {
-  key       String   @id
+  scope     String
+  key       String
   value     Json
   updatedAt DateTime @updatedAt
+
+  @@id([scope, key])
 }
 
 /// Replay results live in their own namespace so they can never be confused
 /// with live shadow data.
 model ReplayRun {
-  id          BigInt        @id @default(autoincrement())
-  ts          DateTime      @default(now())
-  label       String
-  fromTs      DateTime
-  toTs        DateTime
-  paramsJson  Json
+  id            BigInt        @id @default(autoincrement())
+  managedPoolId String
+  managedPool   ManagedPool   @relation(fields: [managedPoolId], references: [id], onDelete: Cascade)
+  ts            DateTime      @default(now())
+  label         String
+  fromTs        DateTime
+  toTs          DateTime
+  paramsJson    Json
   /// Final NAV, HODL NAV, rebalance count, estimated costs, time in range.
-  resultsJson Json
-  events      ReplayEvent[]
+  resultsJson   Json
+  events        ReplayEvent[]
 
-  @@index([ts])
+  @@index([managedPoolId, ts])
 }
 
 model ReplayEvent {

@@ -1,8 +1,11 @@
 # Phase 1.5 — multi-tenant shadow, Telegram-native
 
-Design sketch. Not built. This is the merge of the Armara LP agent product surface
-(Telegram-first, many projects, one bot) with the Phase 1 engine's discipline (no
-keys, costed decisions, HODL benchmark, deterministic replay).
+The merge of the Armara LP agent product surface (Telegram-first, many projects,
+one bot) with the Phase 1 engine's discipline (no keys, costed decisions, HODL
+benchmark, deterministic replay).
+
+**Status: the data layer is built** — schema, registry, scoped persistence and a
+multi-pool loop all ship in this repo. The Telegram layer is still a sketch.
 
 The claim it rests on: **the shadow report is a sellable product on its own.**
 It needs no keys, no capital, and no permission from the project — every input is
@@ -18,7 +21,8 @@ Phase 1.5 ships that. Phase 2 adds signing, for pools that cleared the gate.
 | Area | Phase 1 today | Phase 1.5 |
 | --- | --- | --- |
 | Tenancy | one pool, hardcoded in TOML | many pools, many tenants, rows in Postgres |
-| Config | `config/default.toml` | `ManagedPool.paramsJson`, seeded from the TOML defaults |
+| Config | `config/default.toml` | one versioned `StrategyVersion`, seeded from the TOML |
+| Sizing | `virtual_nav_usd` in TOML | `ManagedPool.virtualNavUsd`, per pool |
 | Interface | one daily Telegram report | full command tree, per tenant chat |
 | Cursors | global `KeyValue` keys | `(scope, key)` — scope is a pool id, tenant id, or `global` |
 | Loop | one `PoolReader` + one `LoopState` | a map of them, one per active pool |
@@ -37,43 +41,58 @@ already its native shape. That was the point of keeping it pure.
 ```prisma
 model Tenant {
   id             String   @id @default(cuid())
-  label          String
-  /// The Telegram chat this tenant is bound to. Reports and alerts go here.
+  /// The parent bot's user/account id. Source of truth lives there.
+  externalUserId String   @unique
+  /// The solo chat this tenant was handed off into.
   telegramChatId String   @unique
-  status         String   @default("ACTIVE")  // ACTIVE | SUSPENDED
+  label          String
+  status         String   @default("ACTIVE")
   createdAt      DateTime @default(now())
   pools          ManagedPool[]
 }
 
+model StrategyVersion {
+  id         String   @id @default(cuid())
+  version    Int      @unique
+  paramsJson Json     // the flat Params object, minus per-pool sizing
+  note       String   // required: why this version exists
+  createdAt  DateTime @default(now())
+}
+
 model ManagedPool {
-  id          String   @id @default(cuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  poolAddress String
-  label       String
-  /// The flat Params object for this pool, as JSON. Seeded from the shipped
-  /// defaults; edited through /settings.
-  paramsJson  Json
-  /// SHADOW | PAUSED | STOPPED.
-  ///
-  /// Phase 1.5 accepts no other value, and the loop asserts it. When Phase 2
-  /// adds LIVE this column is where the kill switch lives — flip to PAUSED and
-  /// the agent stops acting without a deploy.
-  mode        String   @default("SHADOW")
-  createdAt   DateTime @default(now())
+  id                String @id @default(cuid())
+  tenantId          String
+  strategyVersionId String
+  poolAddress       String
+  label             String
+  /// Strategy is canonical; size is not.
+  virtualNavUsd     Decimal @db.Decimal(38, 18)
+  /// PRIMARY (the project's real size) | REFERENCE (fixed size for comparability)
+  role              String  @default("PRIMARY")
+  /// SHADOW | PAUSED | STOPPED
+  mode              String  @default("SHADOW")
+  stoppedAt         DateTime?
 
-  snapshots  Snapshot[]
-  decisions  Decision[]
-  events     VirtualPositionEvent[]
-  benchmarks BenchmarkMark[]
-  replayRuns ReplayRun[]
-
-  /// One shadow run per pool per tenant. Two different tenants may shadow the
-  /// same pool independently with different parameters.
-  @@unique([tenantId, poolAddress])
-  @@index([mode])
+  @@unique([tenantId, poolAddress, role])
 }
 ```
+
+**Identity is imported, never established.** The parent bot authenticates the
+user and hands off; `upsertTenant` records the result. The LP module owns no
+authentication. The handoff should carry a short-lived signed token in a deep
+link (`t.me/<bot>?start=<token>`) rather than trusting a bare `chat_id` — anyone
+can message a bot, and the signature is what proves a real account is behind it.
+
+**One canonical strategy, versioned.** Per-pool parameter copies would give you
+twenty uncomparable experiments and no aggregate claim. `publishStrategyVersion`
+is a no-op when the parameters are unchanged, so a restart does not churn
+versions. (It compares with a canonical key ordering — Postgres `jsonb` does not
+preserve key order, and a naive `JSON.stringify` comparison silently publishes a
+new version on every boot.)
+
+**The strategy version is stamped on every `Decision`.** That dissolves the
+pin-vs-migrate dilemma: pools can be moved to a new version freely, and any
+aggregate claim can still be sliced by version.
 
 ### Changes to existing models
 
@@ -119,13 +138,10 @@ Scope assignment:
 
 ### Migration
 
-The current database holds exactly one pool's data with no way to attribute it.
-If this is done **before** the first real run, it is a clean `migrate dev` against
-an empty database. If done after, every existing row needs backfilling with a
-synthesised `ManagedPool` — recoverable, but a migration you have to think about
-while six weeks of irreplaceable evidence sits in the table.
-
-Do it while the table is empty.
+Applied as `20260813053730_multi_tenant`. It adds required foreign keys, so it
+only runs cleanly against empty tables — which is why it was done before the
+first real shadow run rather than after. If you have already collected data,
+drop and re-migrate; there is nothing worth keeping yet.
 
 ---
 
@@ -136,16 +152,16 @@ capabilities are what shadow mode can actually back.
 
 | Command | What it does | Backed by |
 | --- | --- | --- |
-| `/start` | register tenant, bind the chat | `Tenant` |
+| deep-link handoff | verify the parent bot's signed token, upsert the tenant | `upsertTenant` |
 | `/add <pool url or address>` | validate the pool, show pair / TVL / 24h volume / bin step, confirm, create in `SHADOW` | `fetchPoolStats`, `PoolReader.create` |
 | `/pools` | list this tenant's pools with mode and days of data | `ManagedPool` |
 | `/status [pool]` | NAV vs HODL vs full-range, fees, costs, time in range, current range vs price | `buildDailyReport` |
 | `/why [pool]` | the full gate-by-gate reason trail of the last non-HOLD decision, and how close the open gates are | `Decision.reasonsJson` |
-| `/settings [pool]` | edit `width_k`, dwell, overshoot, cost coverage | `applyOverrides` + zod |
+| `/strategy` | show the canonical strategy and what each gate is for (read-only) | `StrategyVersion` |
 | `/replay [pool]` | run the parameter sweep over stored snapshots, return the comparison table | `runVariant` |
 | `/verdict [pool]` | the three go-live conditions and where each stands | `evaluateGoLive` |
-| `/pause`, `/resume` | `mode` between `SHADOW` and `PAUSED` | `ManagedPool.mode` |
-| `/remove` | `mode` → `STOPPED`, keep the history | `ManagedPool.mode` |
+| `/pause`, `/resume` | `mode` between `SHADOW` and `PAUSED` | `setPoolMode` |
+| `/remove` | `mode` → `STOPPED`, keep the history | `setPoolMode` |
 
 Push notifications, unchanged from Phase 1: daily report at 07:00 tenant-local,
 immediate EXIT alert, immediate price-divergence alert.
@@ -214,39 +230,56 @@ the same time as the multi-tenancy change, since it's the same code path.
 
 | Step | Work | Effort |
 | --- | --- | --- |
-| 1 | Schema + scoped persist + multi-pool loop | ~1 day |
+| 1 | ~~Schema + scoped persist + multi-pool loop~~ | **done** |
 | 2 | grammY bot: `/start`, `/add`, `/pools`, `/status`, `/why` | ~2 days |
 | 3 | `/settings`, `/replay`, `/verdict`, `/pause`, `/remove` | ~1 day |
 | 4 | Onboarding copy, inline keyboards, error states | ~1 day |
 
-Step 1 is the only one with a deadline attached, because it is free now and
-expensive after the first real run.
+Step 1 is done. What exists now: `src/ledger/registry.ts` (tenants, strategy
+versions, pools, and the survivorship-safe `trackRecord` query), pool-scoped
+persistence, and a loop that ticks every `SHADOW` pool and reconciles additions
+and pauses without a restart. Shared price fetching happens once per tick across
+all pools rather than once per pool.
+
+`pnpm replay` and `pnpm report` are both pool-scoped (`--pool <id>`, defaulting
+to the oldest pool and all active pools respectively).
 
 ---
 
-## 6. Decisions needed before step 1
+## 6. Decisions, settled
 
-**Is a tenant a Telegram chat or a Telegram user?** Binding to a chat lets a whole
-project team share one view, which is what a treasury actually wants — but any
-member can then change parameters. Binding to a user gives clean ownership and a
-worse group experience. Recommendation: bind to the chat, record which user issued
-each mutating command.
+**A tenant is a user, not a chat.** The parent bot hands users into a solo chat,
+so ownership is unambiguous. If a project team later needs a shared view, the fix
+is a `Tenant` → `Organization` layer, not a chat binding.
 
-**Who picks the virtual NAV?** Letting each project choose makes the number feel
-relevant to them. Fixing it at $10k across every pool makes results comparable, and
-comparability is what turns twenty shadow runs into a track record. Recommendation:
-fix it, and show percentages rather than dollars in the report.
+**The project picks the size; a reference run keeps things comparable.** Size is
+not cosmetic — fixed costs dominate a small position and self-dilution plus
+slippage eat a large one, so there is a viable band and it differs per pool. A
+project asking "should *we* do this" needs their own number. The `REFERENCE` role
+exists so a fixed-size run can sit alongside the real one and feed the cross-pool
+track record.
 
-**One strategy or per-project parameters?** This is the important one, and it isn't
-really a technical question.
+Because `virtualNavUsd` is just a `Param`, `/replay` can sweep it, which turns
+sizing into an answerable question rather than a guess:
 
-If every project tunes its own `width_k` and dwell, you have twenty uncomparable
-experiments and no aggregate claim. If everyone runs the same canonical strategy,
-then after twenty pools you can say: *our strategy beat HODL on fourteen of twenty
-pools over an average of six weeks, net of costs* — and that sentence is the entire
-business.
+```
+size      final NAV     vs HODL   fees    costs   rebal
+ $10,000    10,180.22   +$32.10   118.40   86.30      6
+ $50,000    51,640.05  +$390.50   604.20   93.15      6
+$250,000   252,100.80  −$410.20  2,180.60 271.40      6
+```
 
-Recommendation: one canonical strategy in production, parameters exposed through
-`/replay` only, so a project can *see* what a different setting would have done
-without fragmenting the record. Promote a parameter change to canonical only when
-the sweep says it wins across the whole portfolio, not one pool.
+**One canonical strategy.** Parameters are exposed through `/replay` only, so a
+project can see what a different setting would have done without fragmenting the
+record. Promote a change to canonical only when the sweep wins across the whole
+portfolio, not one pool.
+
+## 7. The survivorship rule
+
+The sellable artifact is "beat HODL on N of M pools." That number is worthless —
+actively misleading — if pools that did badly get quietly dropped.
+
+`trackRecord()` in `src/ledger/registry.ts` therefore counts `STOPPED` pools, and
+a test asserts it. The decision is made once, in one place, rather than at each
+call site where it would eventually be gotten wrong. Credibility is very hard to
+add back to a number after the fact.

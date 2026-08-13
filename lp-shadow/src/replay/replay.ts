@@ -46,6 +46,8 @@ type Args = {
   to: Date;
   paramsFile?: string;
   label?: string;
+  /** Which managed pool to replay. Required — replay is always pool-scoped. */
+  poolId?: string;
   dryRun: boolean;
 };
 
@@ -65,6 +67,7 @@ function parseArgs(argv: string[]): Args {
     to,
     paramsFile: get('--params'),
     label: get('--label'),
+    poolId: get('--pool'),
     dryRun: argv.includes('--dry-run'),
   };
 }
@@ -92,11 +95,12 @@ type StoredSnapshot = { snapshot: PoolSnapshot; costInputs: CostInputs; id: bigi
 
 async function loadSnapshots(
   prisma: PrismaClient,
+  managedPoolId: string,
   from: Date,
   to: Date,
 ): Promise<StoredSnapshot[]> {
   const rows = await prisma.snapshot.findMany({
-    where: { ts: { gte: from, lte: to } },
+    where: { managedPoolId, ts: { gte: from, lte: to } },
     orderBy: { ts: 'asc' },
   });
   return rows.map((row) => ({
@@ -281,10 +285,33 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const env = loadEnv();
   const base = loadRawConfig();
-  const variants = loadVariants(base, args.paramsFile, args.label);
   const prisma = getPrisma(env.DATABASE_URL);
 
-  const stored = await loadSnapshots(prisma, args.from, args.to);
+  // Replay is always scoped to one pool: mixing two pools' snapshots would
+  // produce a number that describes nothing.
+  const pool = args.poolId
+    ? await prisma.managedPool.findUnique({ where: { id: args.poolId } })
+    : await prisma.managedPool.findFirst({ orderBy: { createdAt: 'asc' } });
+  if (!pool) {
+    log.error(
+      args.poolId
+        ? `no managed pool with id ${args.poolId}`
+        : 'no managed pools registered — nothing to replay',
+    );
+    await disconnectPrisma();
+    return;
+  }
+  log.info(`replaying pool ${pool.label} (${pool.poolAddress}) [${pool.id}]`);
+
+  // The pool's own size, not the TOML default — sizing changes the answer.
+  const withNav = applyOverrides(base, {
+    'pool.address': pool.poolAddress,
+    'pool.label': pool.label,
+    'position.virtual_nav_usd': Number(pool.virtualNavUsd.toString()),
+  });
+  const variants = loadVariants(withNav, args.paramsFile, args.label);
+
+  const stored = await loadSnapshots(prisma, pool.id, args.from, args.to);
   log.info(
     `replaying ${stored.length} snapshots from ${args.from.toISOString()} to ` +
       `${args.to.toISOString()} across ${variants.length} variant(s)`,
@@ -302,6 +329,7 @@ async function main(): Promise<void> {
     for (const [index, result] of results.entries()) {
       const run = await prisma.replayRun.create({
         data: {
+          managedPoolId: pool.id,
           label: args.label ? `${args.label}:${result.variant}` : result.variant,
           fromTs: args.from,
           toTs: args.to,

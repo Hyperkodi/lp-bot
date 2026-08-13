@@ -6,20 +6,25 @@
  */
 import { errorMessage, log } from '../logger.js';
 
+/**
+ * Multi-tenant: the chat is an argument, not baked into the transport. Each
+ * tenant was handed off into their own solo chat by the parent bot, so every
+ * message has to name its destination.
+ */
 export type Telegram = {
   enabled: boolean;
-  send(text: string): Promise<void>;
+  send(chatId: string, text: string): Promise<void>;
 };
 
-export function createTelegram(botToken: string, chatId: string): Telegram {
-  const enabled = botToken.length > 0 && chatId.length > 0;
+export function createTelegram(botToken: string): Telegram {
+  const enabled = botToken.length > 0;
   if (!enabled) {
-    log.warn('telegram disabled (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set)');
+    log.warn('telegram disabled (TELEGRAM_BOT_TOKEN not set)');
   }
   return {
     enabled,
-    async send(text: string): Promise<void> {
-      if (!enabled) {
+    async send(chatId: string, text: string): Promise<void> {
+      if (!enabled || chatId.length === 0) {
         log.info(`[telegram disabled] ${text}`);
         return;
       }

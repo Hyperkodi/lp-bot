@@ -39,6 +39,17 @@ export default tseslint.config(
   { ignores: ['src/generated/**', 'node_modules/**', 'dist/**'] },
   ...tseslint.configs.recommended,
   {
+    files: ['**/*.ts'],
+    rules: {
+      // Underscore-prefixed bindings are intentional discards — the rest-object
+      // idiom for dropping fields needs them.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true },
+      ],
+    },
+  },
+  {
     files: ['src/decision/**/*.ts', 'src/virtual/**/*.ts', 'src/signals/**/*.ts', 'src/binMath.ts'],
     rules: pureLayerRules,
   },
