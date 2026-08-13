@@ -17,11 +17,12 @@ is the buildable contract.
 | **Back-end** (already built) | engine, ledger, pollers, reports, replay, and the **service layer** `src/service/` | everything except `src/bot/` |
 | **Front-end** (this spec) | grammY bot: command routing, conversation state, HTML rendering, inline keyboards, onboarding copy, error presentation | `src/bot/**` only |
 
-**The boundary rule (ESLint-enforced):** files in `src/bot/` may import only
-from `src/service/index.js`, `grammy`, and Node built-ins. Importing
-`ledger/`, `poller/`, `decision/`, `virtual/`, `signals/`, `replay/`,
-`report/`, `config.js`, or the generated Prisma client from `src/bot/` fails
-`pnpm lint`. All data access goes through the service contract below.
+**The boundary rule (ESLint-enforced, allowlist):** files in `src/bot/` may
+import only `src/service/index.js`, sibling files in `src/bot/`, `grammy`,
+and `node:` built-ins. Every other import — deep service files, `ledger/`,
+`poller/`, the generated Prisma client, `@prisma/*`, `@solana/web3.js`,
+`scripts/`, anything — fails `pnpm lint`, and dynamic `import()` is banned
+outright. All data access goes through the service contract below.
 
 **The product guarantee:** this bot never asks for, receives, or stores a
 private key, and has no code path that could sign a transaction. The repo's
@@ -83,6 +84,7 @@ type LpShadowService = {
   getStatus(tenantId: string, poolRef?: string): Promise<StatusReport>;
   getWhy(tenantId: string, poolRef?: string): Promise<WhyReport>;
   getVerdict(tenantId: string, poolRef?: string): Promise<VerdictReport>;
+  /** Window defaults to the last 30 days; pass fromDays to widen or narrow. */
   runReplay(tenantId: string, poolRef?: string, opts?: { fromDays?: number }): Promise<ReplayReport>;
   getStrategy(): Promise<StrategyInfo>;
 
@@ -156,7 +158,7 @@ type ReplayReport = {
 
 ```ts
 type ServiceErrorCode =
-  | 'HANDOFF_INVALID' | 'HANDOFF_EXPIRED'
+  | 'HANDOFF_INVALID' | 'HANDOFF_EXPIRED' | 'CHAT_ALREADY_LINKED' | 'ACCOUNT_SUSPENDED'
   | 'NOT_REGISTERED'
   | 'POOL_NOT_FOUND' | 'POOL_AMBIGUOUS' | 'NO_POOLS' | 'DUPLICATE_POOL'
   | 'POOL_UNREACHABLE' | 'INVALID_INPUT';

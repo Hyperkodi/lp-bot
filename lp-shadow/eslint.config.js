@@ -54,10 +54,12 @@ export default tseslint.config(
     rules: pureLayerRules,
   },
   {
-    // The bot layer talks to src/service and nothing deeper. The service
-    // contract (src/service/index.ts, docs/FRONTEND_TELEGRAM_BOT.md) is the
-    // entire back-end as far as Telegram is concerned — reaching around it
-    // breaks the front-end/back-end split this repo is built on.
+    // The bot layer talks to src/service and nothing deeper. This is an
+    // ALLOWLIST, not a denylist: everything is restricted except the contract
+    // barrel, sibling bot files, grammy, and node built-ins — so a new backend
+    // module is covered by default instead of forgotten, and deep service
+    // imports (../service/handoff.js), src-root files, scripts/, and packages
+    // like @prisma/client or @solana/web3.js all fail lint from src/bot.
     files: ['src/bot/**/*.ts'],
     rules: {
       'no-restricted-imports': [
@@ -65,21 +67,13 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: [
-                '**/ledger/**',
-                '**/poller/**',
-                '**/decision/**',
-                '**/virtual/**',
-                '**/signals/**',
-                '**/replay/**',
-                '**/report/**',
-                '**/generated/**',
-                '**/config.js',
-                '**/binMath.js',
-                '**/clock.js',
-              ],
+              // Restrict everything EXCEPT: same-directory bot files, the
+              // service barrel, grammy, and node built-ins. (A regex, because
+              // gitignore-style negations do not handle ./ and ../ prefixed
+              // specifiers.)
+              regex: '^(?!(\\./[^/]+|\\.\\./service/index\\.js|grammy(/.+)?|node:.+)$).*$',
               message:
-                'src/bot may only import from src/service — the contract is src/service/index.ts.',
+                'src/bot may only import src/service/index.js, sibling bot files, grammy, and node built-ins — the contract is src/service/index.ts.',
             },
           ],
         },
@@ -88,8 +82,10 @@ export default tseslint.config(
   },
   {
     // Phase 1 holds no keys. If any of these words ever appear in the source,
-    // something has gone very wrong and lint should say so loudly.
-    files: ['src/**/*.ts'],
+    // something has gone very wrong and lint should say so loudly. Applies to
+    // scripts/ and test/ too — a key-capable import is no more acceptable in a
+    // dev aid than in the loop.
+    files: ['src/**/*.ts', 'scripts/**/*.ts', 'test/**/*.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',
@@ -97,6 +93,43 @@ export default tseslint.config(
           selector:
             "ImportDeclaration[source.value=/keypair|bip39|ed25519-hd-key|@solana\\/wallet/i]",
           message: 'Phase 1 must not import anything capable of holding or deriving a key.',
+        },
+        {
+          selector: "ImportSpecifier[imported.name='Keypair']",
+          message:
+            'Phase 1 must not touch Keypair — no code path may hold or derive a key.',
+        },
+        {
+          selector:
+            "ImportExpression[source.value=/keypair|bip39|ed25519-hd-key|@solana\\/wallet/i]",
+          message: 'Phase 1 must not import anything capable of holding or deriving a key.',
+        },
+      ],
+    },
+  },
+  {
+    // Dynamic import() would bypass every import rule above. Banned outright
+    // in shipping code; tests keep it because vitest's vi.mock factories need
+    // `await import(...)` (their key-capable variants are still caught by the
+    // literal selector in the previous block).
+    files: ['src/**/*.ts', 'scripts/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "ImportDeclaration[source.value=/keypair|bip39|ed25519-hd-key|@solana\\/wallet/i]",
+          message: 'Phase 1 must not import anything capable of holding or deriving a key.',
+        },
+        {
+          selector: "ImportSpecifier[imported.name='Keypair']",
+          message:
+            'Phase 1 must not touch Keypair — no code path may hold or derive a key.',
+        },
+        {
+          selector: 'ImportExpression',
+          message:
+            'dynamic import() bypasses the boundary and no-keys lint rules; use static imports.',
         },
       ],
     },

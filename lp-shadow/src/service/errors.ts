@@ -9,6 +9,8 @@
 export type ServiceErrorCode =
   | 'HANDOFF_INVALID'
   | 'HANDOFF_EXPIRED'
+  | 'CHAT_ALREADY_LINKED'
+  | 'ACCOUNT_SUSPENDED'
   | 'NOT_REGISTERED'
   | 'POOL_NOT_FOUND'
   | 'POOL_AMBIGUOUS'

@@ -77,13 +77,21 @@ type PendingAddConfirm = {
   tenantId: string;
   preview: PoolPreview;
   virtualNavUsd: number;
+  /** Ties the inline keyboard to this exact state; a stale card's tap must not act on a newer flow. */
+  nonce: string;
+  cardMessageId?: number;
 };
 
 type PendingRemoveConfirm = {
   kind: 'remove-confirm';
   tenantId: string;
   poolRef?: string;
+  nonce: string;
 };
+
+function newNonce(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 type PendingState = PendingAddSize | PendingAddConfirm | PendingRemoveConfirm;
 type Handler = (ctx: Context) => Promise<void>;
@@ -299,13 +307,14 @@ export function createLpBot(token: string, service: LpShadowService): Bot {
       const tenant = await requireTenant(ctx, service);
       if (!tenant) return;
       const poolRef = commandArgument(ctx);
-      pending.set(id, { kind: 'remove-confirm', tenantId: tenant.tenantId, poolRef });
+      const nonce = newNonce();
+      pending.set(id, { kind: 'remove-confirm', tenantId: tenant.tenantId, poolRef, nonce });
 
       const subject = poolRef ? ` <b>${escapeHtml(poolRef)}</b>` : ' this pool';
       const keyboard = new InlineKeyboard()
-        .text('Stop shadowing — history is kept', 'remove:confirm')
+        .text('Stop shadowing — history is kept', `remove:confirm:${nonce}`)
         .row()
-        .text('Cancel', 'remove:cancel');
+        .text('Cancel', `remove:cancel:${nonce}`);
       await replyHtml(ctx, `Stop shadowing${subject}?`, { reply_markup: keyboard });
     }),
   );
@@ -321,50 +330,98 @@ export function createLpBot(token: string, service: LpShadowService): Bot {
     }),
   );
 
+  /** Send (or re-send) the add-confirmation card and arm its pending state. */
+  async function sendAddConfirmCard(
+    ctx: Context,
+    id: string,
+    tenantId: string,
+    preview: PoolPreview,
+    amount: number,
+  ): Promise<void> {
+    const nonce = newNonce();
+    const keyboard = new InlineKeyboard()
+      .text('Shadow it', `add:confirm:${nonce}`)
+      .row()
+      .text('Cancel', `add:cancel:${nonce}`);
+    const card = await ctx.reply(renderAddConfirmation(preview, amount), {
+      ...replyDefaults,
+      reply_markup: keyboard,
+    });
+    pending.set(id, {
+      kind: 'add-confirm',
+      tenantId,
+      preview,
+      virtualNavUsd: amount,
+      nonce,
+      cardMessageId: card.message_id,
+    });
+  }
+
   bot.on(
     'message:text',
     withErrors(async (ctx) => {
       const id = chatId(ctx);
       const state = pending.get(id);
-      if (!state || state.kind !== 'add-size') return;
+      if (!state) return;
 
-      const amount = parsePositiveAmount(ctx.message?.text ?? '');
-      if (amount === null) {
-        await replyHtml(ctx, 'Send a positive number in USD, or use /cancel.');
+      if (state.kind === 'add-size') {
+        const amount = parsePositiveAmount(ctx.message?.text ?? '');
+        if (amount === null) {
+          await replyHtml(ctx, 'Send a positive number in USD, or use /cancel.');
+          return;
+        }
+        await sendAddConfirmCard(ctx, id, state.tenantId, state.preview, amount);
         return;
       }
 
-      pending.set(id, {
-        kind: 'add-confirm',
-        tenantId: state.tenantId,
-        preview: state.preview,
-        virtualNavUsd: amount,
-      });
-      const keyboard = new InlineKeyboard()
-        .text('Shadow it', 'add:confirm')
-        .row()
-        .text('Cancel', 'add:cancel');
-      await replyHtml(ctx, renderAddConfirmation(state.preview, amount), { reply_markup: keyboard });
+      if (state.kind === 'add-confirm') {
+        // A corrected size must not be silently swallowed while the old card
+        // sits there armed with the old amount.
+        const amount = parsePositiveAmount(ctx.message?.text ?? '');
+        if (amount === null) {
+          await replyHtml(
+            ctx,
+            'You have a pending confirmation — tap Shadow it, send a corrected USD size, or /cancel.',
+          );
+          return;
+        }
+        if (state.cardMessageId !== undefined && ctx.chat) {
+          await ctx.api
+            .editMessageReplyMarkup(ctx.chat.id, state.cardMessageId, { reply_markup: undefined })
+            .catch(() => undefined);
+        }
+        await sendAddConfirmCard(ctx, id, state.tenantId, state.preview, amount);
+      }
     }),
   );
 
+  /** Best-effort ack: a stale query ("query is too old") must not derail the handler. */
+  const ack = (ctx: Context): Promise<unknown> => ctx.answerCallbackQuery().catch(() => undefined);
+  const clearTappedKeyboard = (ctx: Context): Promise<unknown> =>
+    ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined);
+
   bot.callbackQuery(
-    'add:confirm',
+    /^add:confirm:(.+)$/,
     withErrors(async (ctx) => {
-      await ctx.answerCallbackQuery();
+      await ack(ctx);
       const id = chatId(ctx);
       const state = pending.get(id);
-      if (!state || state.kind !== 'add-confirm') {
+      if (!state || state.kind !== 'add-confirm' || state.nonce !== ctx.match?.[1]) {
+        // A stale card: neutralize the tapped card only — an unrelated
+        // in-flight flow in this chat must survive.
+        await clearTappedKeyboard(ctx);
         await replyHtml(ctx, 'That confirmation is no longer active. Start again with /add.');
         return;
       }
-      pending.delete(id);
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+      // Service call FIRST: on failure the state and keyboard survive, so the
+      // user can retry or /cancel instead of losing the flow.
       const pool = await service.addPool(state.tenantId, {
         poolAddress: state.preview.poolAddress,
         label: state.preview.name ?? state.preview.poolAddress.slice(0, 8),
         virtualNavUsd: state.virtualNavUsd,
       });
+      pending.delete(id);
+      await clearTappedKeyboard(ctx);
       await replyHtml(
         ctx,
         `<b>${escapeHtml(pool.label)}</b> is now shadowing ${escapeHtml(
@@ -375,41 +432,60 @@ export function createLpBot(token: string, service: LpShadowService): Bot {
   );
 
   bot.callbackQuery(
-    'add:cancel',
+    /^add:cancel:(.+)$/,
     withErrors(async (ctx) => {
-      await ctx.answerCallbackQuery();
-      pending.delete(chatId(ctx));
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined });
-      await replyHtml(ctx, 'Cancelled.');
+      await ack(ctx);
+      const id = chatId(ctx);
+      const state = pending.get(id);
+      await clearTappedKeyboard(ctx);
+      if (state?.kind === 'add-confirm' && state.nonce === ctx.match?.[1]) {
+        pending.delete(id);
+        await replyHtml(ctx, 'Cancelled.');
+        return;
+      }
+      await replyHtml(ctx, 'That confirmation is no longer active.');
     }),
   );
 
   bot.callbackQuery(
-    'remove:confirm',
+    /^remove:confirm:(.+)$/,
     withErrors(async (ctx) => {
-      await ctx.answerCallbackQuery();
+      await ack(ctx);
       const id = chatId(ctx);
       const state = pending.get(id);
-      if (!state || state.kind !== 'remove-confirm') {
+      if (!state || state.kind !== 'remove-confirm' || state.nonce !== ctx.match?.[1]) {
+        await clearTappedKeyboard(ctx);
         await replyHtml(ctx, 'That confirmation is no longer active. Start again with /remove.');
         return;
       }
-      pending.delete(id);
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined });
       const pool = await service.removePool(state.tenantId, state.poolRef);
+      pending.delete(id);
+      await clearTappedKeyboard(ctx);
       await replyHtml(ctx, `Stopped shadowing <b>${escapeHtml(pool.label)}</b>. History is kept.`);
     }),
   );
 
   bot.callbackQuery(
-    'remove:cancel',
+    /^remove:cancel:(.+)$/,
     withErrors(async (ctx) => {
-      await ctx.answerCallbackQuery();
-      pending.delete(chatId(ctx));
-      await ctx.editMessageReplyMarkup({ reply_markup: undefined });
-      await replyHtml(ctx, 'Cancelled.');
+      await ack(ctx);
+      const id = chatId(ctx);
+      const state = pending.get(id);
+      await clearTappedKeyboard(ctx);
+      if (state?.kind === 'remove-confirm' && state.nonce === ctx.match?.[1]) {
+        pending.delete(id);
+        await replyHtml(ctx, 'Cancelled.');
+        return;
+      }
+      await replyHtml(ctx, 'That confirmation is no longer active.');
     }),
   );
+
+  // Safety net: an error that escapes a handler (e.g. a failed reply inside
+  // withErrors' own catch) must not kill long polling for every tenant.
+  bot.catch((err) => {
+    console.error('unhandled bot error:', err.error instanceof Error ? err.error.stack : err.error);
+  });
 
   return bot;
 }

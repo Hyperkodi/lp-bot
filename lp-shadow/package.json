@@ -13,6 +13,7 @@
     "start": "tsx src/index.ts",
     "bot": "tsx src/bot/main.ts",
     "handoff:issue": "tsx scripts/issue-handoff.ts",
+    "smoke:service": "tsx scripts/smoke-service.ts",
     "replay": "tsx src/replay/replay.ts",
     "report": "tsx src/report/run.ts",
     "test": "vitest run",

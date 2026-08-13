@@ -20,7 +20,7 @@ import {
   transitionMode,
 } from './pools.js';
 import { runReplayForPool } from './replay.js';
-import { getStatus, getStrategy, getVerdict, getWhy } from './reports.js';
+import { getStatus, getStrategy, getVerdict, getWhy, type GoLiveCache } from './reports.js';
 import type { LpShadowService, PoolSummary } from './types.js';
 
 export async function createService(): Promise<LpShadowService> {
@@ -31,6 +31,8 @@ export async function createService(): Promise<LpShadowService> {
   // Same seed the loop performs on boot; a no-op when the version exists. The
   // bot may be the first process ever pointed at a fresh database.
   await publishStrategyVersion(prisma, configParams, 'seeded from config/default.toml');
+
+  const goLiveCache: GoLiveCache = new Map();
 
   const latestStrategy = async (): Promise<{ id: string }> => {
     const latest = await prisma.strategyVersion.findFirst({
@@ -54,11 +56,11 @@ export async function createService(): Promise<LpShadowService> {
     },
 
     getStatus: async (tenantId, poolRef) =>
-      getStatus(prisma, configParams, await resolvePoolRow(prisma, tenantId, poolRef)),
+      getStatus(prisma, configParams, await resolvePoolRow(prisma, tenantId, poolRef), goLiveCache),
     getWhy: async (tenantId, poolRef) =>
       getWhy(prisma, await resolvePoolRow(prisma, tenantId, poolRef)),
     getVerdict: async (tenantId, poolRef) =>
-      getVerdict(prisma, configParams, await resolvePoolRow(prisma, tenantId, poolRef)),
+      getVerdict(prisma, configParams, await resolvePoolRow(prisma, tenantId, poolRef), goLiveCache),
     runReplay: async (tenantId, poolRef, opts) =>
       runReplayForPool(prisma, await resolvePoolRow(prisma, tenantId, poolRef), opts),
     getStrategy: () => getStrategy(prisma),

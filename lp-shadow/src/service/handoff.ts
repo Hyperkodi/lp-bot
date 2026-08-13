@@ -38,6 +38,15 @@ export async function issueHandoff(
   if (input.externalUserId.trim().length === 0) {
     throw new ServiceError('INVALID_INPUT', 'externalUserId must not be empty.');
   }
+  // Opportunistic purge: tokens whose deep link was never pressed would
+  // otherwise sit in KeyValue forever.
+  await prisma.keyValue.deleteMany({
+    where: {
+      scope: 'global',
+      key: { startsWith: KEY_PREFIX },
+      value: { path: ['exp'], lt: Date.now() },
+    },
+  });
   const token = newHandoffToken();
   const expiresAt = new Date(Date.now() + (input.ttlMinutes ?? DEFAULT_TTL_MINUTES) * 60_000);
   const value: StoredHandoff = {
@@ -71,27 +80,72 @@ export async function redeemHandoff(
   if (!row) throw invalid;
 
   const stored = row.value as StoredHandoff;
-  const claimed = await prisma.keyValue.deleteMany({ where: { scope: 'global', key } });
-  if (claimed.count === 0) throw invalid;
-
   if (typeof stored.exp !== 'number' || stored.exp < Date.now()) {
+    await prisma.keyValue.deleteMany({ where: { scope: 'global', key } });
     throw new ServiceError(
       'HANDOFF_EXPIRED',
       "That link expired — they're one-time and short-lived. Ask the Armara bot for a fresh one.",
     );
   }
 
-  const tenant = await upsertTenant(prisma, {
-    externalUserId: stored.externalUserId,
-    telegramChatId,
-    label: stored.label,
-  });
-  return {
-    tenantId: tenant.id,
-    externalUserId: stored.externalUserId,
-    telegramChatId,
-    label: stored.label,
-  };
+  // Pre-checks that must not consume the token. A chat can belong to one
+  // account, and a suspended account cannot re-enter by having the parent bot
+  // mint it a fresh link.
+  const [bound, existing] = await Promise.all([
+    prisma.tenant.findUnique({
+      where: { telegramChatId },
+      select: { externalUserId: true, label: true },
+    }),
+    prisma.tenant.findUnique({
+      where: { externalUserId: stored.externalUserId },
+      select: { status: true },
+    }),
+  ]);
+  if (bound && bound.externalUserId !== stored.externalUserId) {
+    throw new ServiceError(
+      'CHAT_ALREADY_LINKED',
+      `This chat is already linked to "${bound.label}" — a link for a different account can't be redeemed here.`,
+    );
+  }
+  if (existing && existing.status !== 'ACTIVE') {
+    throw new ServiceError(
+      'ACCOUNT_SUSPENDED',
+      'This account is suspended — redeeming a new link cannot restore it. Contact Armara.',
+    );
+  }
+
+  const claimed = await prisma.keyValue.deleteMany({ where: { scope: 'global', key } });
+  if (claimed.count === 0) throw invalid;
+
+  try {
+    const tenant = await upsertTenant(prisma, {
+      externalUserId: stored.externalUserId,
+      telegramChatId,
+      label: stored.label,
+    });
+    return {
+      tenantId: tenant.id,
+      externalUserId: stored.externalUserId,
+      telegramChatId,
+      label: stored.label,
+    };
+  } catch (err) {
+    // The plan called for delete + upsert in one transaction so a failed
+    // binding cannot burn the one-time token. Same guarantee, compensation
+    // style: put the token back, then surface the error. If the restore
+    // itself fails the token is lost — but that needs two failures in a row.
+    await prisma.keyValue
+      .create({ data: { scope: 'global', key, value: stored } })
+      .catch(() => undefined);
+    // Race: the chat got bound between the pre-check above and the upsert.
+    if ((err as { code?: string }).code === 'P2002') {
+      throw new ServiceError(
+        'CHAT_ALREADY_LINKED',
+        'This chat is already linked to a different account.',
+      );
+    }
+    throw err;
+  }
 }
 
 export async function getTenantByChatId(

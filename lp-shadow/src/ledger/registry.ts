@@ -135,9 +135,16 @@ export async function setPoolMode(
   managedPoolId: string,
   mode: PoolMode,
 ): Promise<void> {
+  const stoppedAt = mode === 'STOPPED' ? new Date() : null;
   await prisma.managedPool.update({
     where: { id: managedPoolId },
-    data: { mode, stoppedAt: mode === 'STOPPED' ? new Date() : null },
+    data: {
+      mode,
+      stoppedAt,
+      // Stopping stamps the run into the uniqueness key so the pool can be
+      // re-added as a fresh run; live rows always carry 0.
+      ...(stoppedAt ? { runSeq: BigInt(stoppedAt.getTime()) } : {}),
+    },
   });
 }
 

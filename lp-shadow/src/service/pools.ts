@@ -40,13 +40,19 @@ export function toPoolSummary(row: PoolRow, daysOfData: number): PoolSummary {
   };
 }
 
+/**
+ * First-to-LAST snapshot span, not first-to-now: a paused or stopped pool
+ * accrues no observations, and "days of data" must not keep growing with the
+ * calendar while nothing is being observed.
+ */
 export async function daysOfData(prisma: PrismaClient, managedPoolId: string): Promise<number> {
-  const first = await prisma.snapshot.findFirst({
+  const range = await prisma.snapshot.aggregate({
     where: { managedPoolId },
-    orderBy: { ts: 'asc' },
-    select: { ts: true },
+    _min: { ts: true },
+    _max: { ts: true },
   });
-  return first ? (Date.now() - first.ts.getTime()) / MS_PER_DAY : 0;
+  if (!range._min.ts || !range._max.ts) return 0;
+  return (range._max.ts.getTime() - range._min.ts.getTime()) / MS_PER_DAY;
 }
 
 export async function summarize(prisma: PrismaClient, row: PoolRow): Promise<PoolSummary> {
@@ -98,8 +104,15 @@ export async function addPool(
   tenantId: string,
   input: { poolAddress: string; label: string; virtualNavUsd: number },
 ): Promise<PoolSummary> {
-  if (!Number.isFinite(input.virtualNavUsd) || input.virtualNavUsd <= 0) {
-    throw new ServiceError('INVALID_INPUT', 'The size must be a positive USD amount.');
+  // Upper bound well inside Decimal(38,18)'s 20 integer digits, so an absurd
+  // size fails as bad input rather than as a raw numeric-overflow from
+  // Postgres.
+  if (
+    !Number.isFinite(input.virtualNavUsd) ||
+    input.virtualNavUsd <= 0 ||
+    input.virtualNavUsd > 1e15
+  ) {
+    throw new ServiceError('INVALID_INPUT', 'The size must be a positive USD amount (at most $1,000,000,000,000,000 — and be serious).');
   }
   const label = input.label.trim();
   if (label.length === 0) {
@@ -170,18 +183,29 @@ export async function resolvePoolRow(
 
   const byId = rows.find((row) => row.id === trimmed);
   if (byId) return byId;
-  const byAddress = rows.find((row) => row.poolAddress === trimmed);
+
+  // A pool that was removed and re-added exists as several runs sharing one
+  // address (and usually one label). A ref that matches several runs means the
+  // live one, unless only stopped runs remain — then the ref is ambiguous.
+  const pickOne = (matches: PoolRow[]): PoolRow | null => {
+    if (matches.length === 1) return matches[0]!;
+    const live = matches.filter((row) => row.mode !== 'STOPPED');
+    if (live.length === 1) return live[0]!;
+    if (matches.length > 1) {
+      throw new ServiceError(
+        'POOL_AMBIGUOUS',
+        `"${trimmed}" matches more than one run of that pool — use the pool id from /pools instead.`,
+      );
+    }
+    return null;
+  };
+
+  const byAddress = pickOne(rows.filter((row) => row.poolAddress === trimmed));
   if (byAddress) return byAddress;
 
   const needle = trimmed.toLowerCase();
-  const byLabel = rows.filter((row) => row.label.toLowerCase() === needle);
-  if (byLabel.length === 1) return byLabel[0]!;
-  if (byLabel.length > 1) {
-    throw new ServiceError(
-      'POOL_AMBIGUOUS',
-      `"${trimmed}" matches more than one pool — use the address or id instead.`,
-    );
-  }
+  const byLabel = pickOne(rows.filter((row) => row.label.toLowerCase() === needle));
+  if (byLabel) return byLabel;
 
   throw new ServiceError(
     'POOL_NOT_FOUND',

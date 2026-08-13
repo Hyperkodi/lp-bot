@@ -6,13 +6,36 @@
  */
 import { paramsForPool } from '../config.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
-import { buildDailyReport, evaluateGoLive } from '../report/daily.js';
+import { buildDailyReport, evaluateGoLive, type GoLiveVerdict } from '../report/daily.js';
+import { escapeHtml } from '../report/telegram.js';
 import type { Params } from '../types.js';
 import { ServiceError } from './errors.js';
 import { summarize, type PoolRow } from './pools.js';
 import type { DecisionDetail, StatusReport, StrategyInfo, VerdictReport, WhyReport } from './types.js';
 
 const MS_PER_DAY = 86_400_000;
+
+/**
+ * evaluateGoLive aggregates the pool's entire snapshot history (its regime
+ * check is defined over the whole shadow window), which is fine on the loop's
+ * weekly cadence but not on a user-repeatable chat command. Five minutes of
+ * staleness is nothing against a 4–6 week gate.
+ */
+export type GoLiveCache = Map<string, { at: number; verdict: GoLiveVerdict }>;
+const GO_LIVE_TTL_MS = 5 * 60_000;
+
+async function cachedGoLive(
+  prisma: PrismaClient,
+  params: Params,
+  managedPoolId: string,
+  cache: GoLiveCache,
+): Promise<GoLiveVerdict> {
+  const hit = cache.get(managedPoolId);
+  if (hit && Date.now() - hit.at < GO_LIVE_TTL_MS) return hit.verdict;
+  const verdict = await evaluateGoLive(prisma, params, managedPoolId, Date.now());
+  cache.set(managedPoolId, { at: Date.now(), verdict });
+  return verdict;
+}
 
 /**
  * The pool's effective Params: canonical strategy (from the version stamped on
@@ -36,13 +59,27 @@ export async function getStatus(
   prisma: PrismaClient,
   configParams: Params,
   row: PoolRow,
+  cache: GoLiveCache,
 ): Promise<StatusReport> {
-  const report = await buildDailyReport(prisma, poolParams(configParams, row), row.id, Date.now(), {
-    // On-demand status always shows the gate; the weekly cadence only governs
-    // the pushed report.
-    includeGoLive: true,
+  const params = poolParams(configParams, row);
+  // On-demand status always shows the gate (the weekly cadence only governs
+  // the pushed report), but through the cache — so the gate block is composed
+  // here, mirroring daily.ts's formatting, instead of paying the full-history
+  // aggregation on every /status.
+  const report = await buildDailyReport(prisma, params, row.id, Date.now(), {
+    includeGoLive: false,
   });
-  return { pool: await summarize(prisma, row), html: report.text, verdictPass: report.verdictPass };
+  const verdict = await cachedGoLive(prisma, params, row.id, cache);
+  const gateLines = [
+    '<b>Go-live gate (advisory)</b>',
+    ...verdict.lines.map((line) => escapeHtml(line)),
+    verdict.pass ? '<b>VERDICT: GATE CLEAR</b>' : '<b>VERDICT: KEEP SHADOWING</b>',
+  ];
+  return {
+    pool: await summarize(prisma, row),
+    html: `${report.text}\n${gateLines.join('\n')}`,
+    verdictPass: verdict.pass,
+  };
 }
 
 function toDetail(row: {
@@ -105,8 +142,9 @@ export async function getVerdict(
   prisma: PrismaClient,
   configParams: Params,
   row: PoolRow,
+  cache: GoLiveCache,
 ): Promise<VerdictReport> {
-  const verdict = await evaluateGoLive(prisma, poolParams(configParams, row), row.id, Date.now());
+  const verdict = await cachedGoLive(prisma, poolParams(configParams, row), row.id, cache);
   return {
     pool: await summarize(prisma, row),
     shadowDays: verdict.shadowDays,

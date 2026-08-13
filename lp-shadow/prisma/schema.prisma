@@ -87,15 +87,22 @@ model ManagedPool {
   createdAt DateTime  @default(now())
   stoppedAt DateTime?
 
+  /// Run discriminator inside the uniqueness key. Live rows (SHADOW/PAUSED)
+  /// always carry 0, so a tenant can have at most one live run per pool+role;
+  /// stopping a run stamps it with the stop time, freeing the key so /add can
+  /// start a fresh run with fresh evidence while every stopped run's history
+  /// (and its place in the track record) is kept.
+  runSeq BigInt @default(0)
+
   snapshots  Snapshot[]
   decisions  Decision[]
   events     VirtualPositionEvent[]
   benchmarks BenchmarkMark[]
   replayRuns ReplayRun[]
 
-  /// One run per pool per role per tenant. Different tenants may shadow the
-  /// same pool independently.
-  @@unique([tenantId, poolAddress, role])
+  /// One LIVE run per pool per role per tenant (runSeq = 0). Different tenants
+  /// may shadow the same pool independently; stopped runs coexist as history.
+  @@unique([tenantId, poolAddress, role, runSeq])
   @@index([mode])
   @@index([tenantId])
 }

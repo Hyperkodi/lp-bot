@@ -15,9 +15,11 @@ async function main(): Promise<void> {
   const bot = createLpBot(token, service);
   let stopping = false;
   const stop = (): void => {
-    if (stopping) return;
     stopping = true;
-    void bot.stop();
+    // Rejects when polling has not started yet — that's fine, the `stopping`
+    // check below prevents the start; it must not become an unhandled
+    // rejection that skips service.close().
+    void bot.stop().catch(() => undefined);
   };
 
   process.once('SIGINT', stop);
@@ -25,9 +27,12 @@ async function main(): Promise<void> {
 
   try {
     await bot.api.setMyCommands(BOT_COMMANDS);
-    await bot.start({
-      onStart: (info) => console.log(`LP Shadow bot @${info.username} is polling.`),
-    });
+    // A signal that arrived during startup means: don't start polling at all.
+    if (!stopping) {
+      await bot.start({
+        onStart: (info) => console.log(`LP Shadow bot @${info.username} is polling.`),
+      });
+    }
   } finally {
     process.off('SIGINT', stop);
     process.off('SIGTERM', stop);

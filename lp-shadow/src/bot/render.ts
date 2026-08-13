@@ -25,14 +25,62 @@ export function escapeHtml(value: string): string {
 }
 
 /**
+ * Headroom reserved per chunk so re-balancing HTML tags across chunk
+ * boundaries (closing at the end, reopening at the start) can never push a
+ * chunk over the Telegram limit.
+ */
+const BALANCE_HEADROOM = 64;
+
+/** The formatting tags this bot emits. Escaped user content never matches. */
+const TAG_RE = /<\/?(b|i|pre|code)>/g;
+
+/** Tags still open after scanning `html`, in opening order. */
+function openTagsAfter(html: string): string[] {
+  const stack: string[] = [];
+  for (const match of html.matchAll(TAG_RE)) {
+    const tag = match[1]!;
+    if (match[0].startsWith('</')) {
+      const at = stack.lastIndexOf(tag);
+      if (at >= 0) stack.splice(at, 1);
+    } else {
+      stack.push(tag);
+    }
+  }
+  return stack;
+}
+
+/**
+ * Telegram parses each message's HTML independently, so a <pre> table (or any
+ * tag pair) spanning a chunk boundary would 400 both chunks. Close whatever is
+ * open at each boundary and reopen it at the start of the next chunk.
+ */
+function balanceHtml(chunks: string[]): string[] {
+  const out: string[] = [];
+  let carry: string[] = [];
+  for (const [index, chunk] of chunks.entries()) {
+    const prefixed = carry.map((tag) => `<${tag}>`).join('') + chunk;
+    if (index === chunks.length - 1) {
+      out.push(prefixed);
+      break;
+    }
+    carry = openTagsAfter(prefixed);
+    out.push(prefixed + [...carry].reverse().map((tag) => `</${tag}>`).join(''));
+  }
+  return out;
+}
+
+/**
  * Split without discarding any content. Newline-terminated pieces are kept
- * together whenever possible; a single overlong line is split as a fallback.
+ * together whenever possible; a single overlong line is split as a fallback
+ * (which can cut through a tag literal — the tables this bot emits are
+ * multi-line, so in practice boundaries land between lines).
  */
 export function chunkMessage(message: string, limit = TELEGRAM_MESSAGE_LIMIT): string[] {
-  if (!Number.isInteger(limit) || limit <= 0) {
-    throw new RangeError('Message limit must be a positive integer.');
+  if (!Number.isInteger(limit) || limit <= BALANCE_HEADROOM) {
+    throw new RangeError(`Message limit must be an integer above ${BALANCE_HEADROOM}.`);
   }
   if (message.length <= limit) return [message];
+  const budget = limit - BALANCE_HEADROOM;
 
   const pieces = message.match(/[^\n]*\n|[^\n]+$/g) ?? [];
   const chunks: string[] = [];
@@ -46,22 +94,22 @@ export function chunkMessage(message: string, limit = TELEGRAM_MESSAGE_LIMIT): s
   };
 
   for (const piece of pieces) {
-    if (piece.length > limit) {
+    if (piece.length > budget) {
       flush();
-      for (let offset = 0; offset < piece.length; offset += limit) {
-        const part = piece.slice(offset, offset + limit);
-        if (part.length === limit) chunks.push(part);
+      for (let offset = 0; offset < piece.length; offset += budget) {
+        const part = piece.slice(offset, offset + budget);
+        if (part.length === budget) chunks.push(part);
         else current = part;
       }
       continue;
     }
 
-    if (current.length + piece.length > limit) flush();
+    if (current.length + piece.length > budget) flush();
     current += piece;
   }
 
   flush();
-  return chunks;
+  return balanceHtml(chunks);
 }
 
 function formatMoney(value: number): string {

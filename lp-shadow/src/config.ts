@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 import type { Params } from './types.js';
@@ -154,8 +155,16 @@ export function paramsForPool(
   };
 }
 
+/**
+ * The shipped config, located relative to this file rather than the process
+ * cwd — the loop, the bot, and the CLIs are separate long-running processes
+ * and none of them should break because a service manager set WorkingDirectory
+ * somewhere else. LP_SHADOW_CONFIG still overrides.
+ */
+export const DEFAULT_CONFIG_PATH = fileURLToPath(new URL('../config/default.toml', import.meta.url));
+
 export function loadRawConfig(path?: string): RawConfig {
-  const file = resolve(path ?? process.env.LP_SHADOW_CONFIG ?? 'config/default.toml');
+  const file = resolve(path ?? process.env.LP_SHADOW_CONFIG ?? DEFAULT_CONFIG_PATH);
   const parsed = parseToml(readFileSync(file, 'utf8'));
   const result = configSchema.safeParse(parsed);
   if (!result.success) {

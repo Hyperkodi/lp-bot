@@ -55,4 +55,26 @@ describe('Telegram renderers', () => {
     expect(chunks.join('')).toBe(payload);
     expect(chunks.slice(0, -1).every((chunk) => chunk.endsWith('\n'))).toBe(true);
   });
+
+  it('keeps HTML tags balanced in every chunk when a <pre> block spans the boundary', () => {
+    // A giant <pre> table, far over one message: without balancing, every
+    // chunk except the whole would carry an unclosed <pre> and Telegram would
+    // reject it with a parse error.
+    const payload = `<b>Replay</b>\n<pre>${'row  1  2  3\n'.repeat(400)}</pre>`;
+    const chunks = chunkMessage(payload);
+    expect(chunks.length).toBeGreaterThan(1);
+
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(4096);
+      for (const tag of ['b', 'pre']) {
+        const opens = (chunk.match(new RegExp(`<${tag}>`, 'g')) ?? []).length;
+        const closes = (chunk.match(new RegExp(`</${tag}>`, 'g')) ?? []).length;
+        expect(opens).toBe(closes);
+      }
+    }
+
+    // Balancing adds tags but must never drop content.
+    const stripped = (value: string): string => value.replaceAll(/<\/?(b|pre)>/g, '');
+    expect(chunks.map(stripped).join('')).toBe(stripped(payload));
+  });
 });
