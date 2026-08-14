@@ -162,10 +162,21 @@ The detailed plan reports the represented Meteora price and active bin, the
 The team-supplied token/SOL ratio defines the intended opening price, which is
 rounded to the nearest representable bin and disclosed before confirmation.
 Changing either launch amount also changes the implied price and FDV.
-`--gas-reserve` defaults to 0.05 SOL and is reported as wallet
-funding outside the position. The displayed wallet amount is a minimum before
-pool creation, account rent, and transaction costs; those costs must be quoted
-and added before the founder is given a final deposit amount.
+`--gas-reserve` defaults to 0.05 SOL and is reported as wallet funding outside
+the position. The detailed view also estimates the SDK-published rent for the
+pool account, two reserve token accounts, one classic position, and the bin
+arrays crossed by that position. It separately reports the minimum wallet SOL
+including those known accounts. This is not an all-in quote: creator token
+accounts, network and priority fees, optional bitmap-extension rent, and
+existing-account credits still require a fresh unsigned network preflight.
+
+The typed execution draft fixes the reviewed orientation as project token X
+and wrapped SOL Y, making every displayed price `SOL per project token`. It
+converts human amounts to exact atomic integers, derives the deterministic
+devnet pool and position addresses, and maps the funded interval into
+`OPEN_POSITION`. The draft contains no signer and does not build or send a
+transaction. Mint addresses, the real token decimal count, wallet addresses,
+and a fresh wallet balance are required before it can be created.
 
 The comparison models buyer depth contributed by this initial position only.
 It excludes other LPs, routing, dynamic fees, and market reaction, so it is a

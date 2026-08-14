@@ -44,6 +44,15 @@ describe('initial-liquidity launch planner', () => {
     });
     expect(plan.fundedRange.lowerPriceSolPerToken).toBeLessThan(plan.price.representedPriceSolPerToken);
     expect(plan.fundedRange.upperPriceSolPerToken).toBeGreaterThan(plan.price.representedPriceSolPerToken);
+    expect(plan.creationCost).toMatchObject({
+      binArrayCount: 2,
+      knownRequiredAccountRentLamports: 211_542_240,
+      knownRequiredAccountRentSol: 0.21154224,
+      conditionalCreatorTokenAccountRentSol: 0.00407856,
+      transactionFeesIncluded: false,
+      priorityFeesIncluded: false,
+    });
+    expect(plan.creationCost.minimumWalletSolWithKnownAccountRent).toBeCloseTo(10.26154224);
     expect(plan.deposit).toMatchObject({
       tokenAmount: 1_000_000,
       positionSolAmount: 10,

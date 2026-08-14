@@ -8,6 +8,7 @@
  *   BIN_ARRAY_FEE             0.07143744 SOL  rent for one bin array
  *   POSITION_FEE              0.05740608 SOL  rent for a position account
  *   TOKEN_ACCOUNT_FEE         0.00203928 SOL
+ *   POOL_FEE                  0.00718272 SOL
  *
  * Phase 1 models one classic position, so `DEFAULT_BIN_PER_POSITION` is the
  * ceiling config is validated against.
@@ -33,6 +34,10 @@ export const BINS_PER_BIN_ARRAY = num('MAX_BIN_ARRAY_SIZE');
 /** Rent, in lamports, of the accounts a position touches. */
 export const BIN_ARRAY_RENT_LAMPORTS = Math.round(num('BIN_ARRAY_FEE') * LAMPORTS_PER_SOL);
 export const POSITION_RENT_LAMPORTS = Math.round(num('POSITION_FEE') * LAMPORTS_PER_SOL);
+export const TOKEN_ACCOUNT_RENT_LAMPORTS = Math.round(
+  num('TOKEN_ACCOUNT_FEE') * LAMPORTS_PER_SOL,
+);
+export const POOL_ACCOUNT_RENT_LAMPORTS = Math.round(num('POOL_FEE') * LAMPORTS_PER_SOL);
 
 /** Bin-array index a bin falls in. Matches `binIdToBinArrayIndex` in the SDK. */
 export function binArrayIndex(binId: number): number {

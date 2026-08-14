@@ -108,7 +108,7 @@ function printOpening(plan: InitialLiquidityLaunchPlan): void {
   process.stdout.write(
     `Minimum wallet SOL before creation costs: ${number(plan.deposit.minimumWalletSolBeforeCreationCosts, 4)} (${number(plan.deposit.positionSolAmount, 4)} position + ${number(plan.deposit.gasReserveSol, 4)} reserve)\n`,
   );
-  process.stdout.write('Pool creation, account rent, and transaction costs must be quoted and added before funding.\n');
+  process.stdout.write('Known SDK account rent is estimated below; exact network and conditional account costs still require preflight.\n');
   process.stdout.write(`Pool settings: ${plan.pool.binStepBps} bps bin step, ${plan.pool.baseFeeBps} bps base fee\n`);
   process.stdout.write(`Price confirmation: ${plan.price.confirmationPhrase}\n`);
   process.stdout.write('\nPermanent-position rule: open at pool creation and leave this initial liquidity deposited unless the founder explicitly withdraws.\n');
@@ -126,6 +126,12 @@ function printSingle(plan: InitialLiquidityLaunchPlan): void {
   );
   process.stdout.write(
     `Funded price range: ${number(plan.fundedRange.lowerPriceSolPerToken, 12)} to ${number(plan.fundedRange.upperPriceSolPerToken, 12)} SOL per token\n`,
+  );
+  process.stdout.write(
+    `Known SDK account rent: ${number(plan.creationCost.knownRequiredAccountRentSol, 9)} SOL (${plan.creationCost.binArrayCount} bin arrays)\n`,
+  );
+  process.stdout.write(
+    `Minimum wallet with known account rent: ${number(plan.creationCost.minimumWalletSolWithKnownAccountRent, 9)} SOL, plus network/priority fees and any conditional account rent\n`,
   );
   process.stdout.write(
     `Modeled buyer: ${number(plan.buyer.requestedSol, 4)} SOL requested, ${percent(plan.buyer.fillRate)} filled, ${plan.buyer.priceImpactBps.toFixed(1)} bps average impact\n`,

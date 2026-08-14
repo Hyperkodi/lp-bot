@@ -160,10 +160,7 @@ export class RealMeteoraSdkFacade implements MeteoraSdkFacade {
   }
 
   derivePositionAddress(poolAddress: PublicKey, base: PublicKey, lowerBinId: BN, width: BN) {
-    const derivePosition = sdkExport<
-      (pool: PublicKey, positionBase: PublicKey, lower: BN, positionWidth: BN, program: PublicKey) => [PublicKey, number]
-    >('derivePosition');
-    return derivePosition(poolAddress, base, lowerBinId, width, devnetProgramId())[0];
+    return deriveMeteoraPositionAddress(poolAddress, base, lowerBinId, width);
   }
 }
 
@@ -172,17 +169,36 @@ function devnetProgramId(): PublicKey {
   return new PublicKey(programIds.devnet);
 }
 
+export function deriveCustomizablePoolAddress(
+  tokenXMint: PublicKey,
+  tokenYMint: PublicKey,
+): PublicKey {
+  const derivePair = sdkExport<
+    (tokenX: PublicKey, tokenY: PublicKey, programId: PublicKey) => [PublicKey, number]
+  >('deriveCustomizablePermissionlessLbPair');
+  return derivePair(tokenXMint, tokenYMint, devnetProgramId())[0];
+}
+
+export function deriveMeteoraPositionAddress(
+  poolAddress: PublicKey,
+  base: PublicKey,
+  lowerBinId: BN,
+  width: BN,
+): PublicKey {
+  const derivePosition = sdkExport<
+    (pool: PublicKey, positionBase: PublicKey, lower: BN, positionWidth: BN, program: PublicKey) => [PublicKey, number]
+  >('derivePosition');
+  return derivePosition(poolAddress, base, lowerBinId, width, devnetProgramId())[0];
+}
+
 export async function findExistingCustomizablePool(
   connection: Pick<Connection, 'getAccountInfo'>,
   tokenA: PublicKey,
   tokenB: PublicKey,
 ): Promise<PublicKey | null> {
-  const derivePair = sdkExport<
-    (tokenX: PublicKey, tokenY: PublicKey, programId: PublicKey) => [PublicKey, number]
-  >('deriveCustomizablePermissionlessLbPair');
   const candidates = [
-    derivePair(tokenA, tokenB, devnetProgramId())[0],
-    derivePair(tokenB, tokenA, devnetProgramId())[0],
+    deriveCustomizablePoolAddress(tokenA, tokenB),
+    deriveCustomizablePoolAddress(tokenB, tokenA),
   ];
   for (const candidate of candidates) {
     if (await connection.getAccountInfo(candidate, 'confirmed')) return candidate;

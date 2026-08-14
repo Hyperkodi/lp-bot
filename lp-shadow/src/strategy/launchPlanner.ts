@@ -12,6 +12,7 @@ import {
   openPosition,
   simulateBuyerSwap,
 } from '../virtual/position.js';
+import { estimateInitialLiquidityCost, type InitialLiquidityCostEstimate } from './launchCosts.js';
 
 export const LAUNCH_PLAN_WIDTHS = Object.freeze([15, 31, 51, 69]);
 export const LAUNCH_PLAN_SHAPES = Object.freeze<DistributionShape[]>([
@@ -72,6 +73,10 @@ export type InitialLiquidityLaunchPlan = {
     creationCostsIncluded: false;
     initialLiquidityValueSol: number;
     initialLiquidityValueUsd: number | null;
+  };
+  creationCost: InitialLiquidityCostEstimate & {
+    knownRequiredAccountRentUsd: number | null;
+    minimumWalletSolWithKnownAccountRent: number;
   };
   pool: { binStepBps: number; baseFeeBps: number };
   buyer: {
@@ -176,6 +181,10 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
   const fundedRange = centeredFundedRange(activeBinId, input.totalBins);
   const fundedLower = fundedRange.lowerBinId;
   const fundedUpper = fundedRange.upperBinId;
+  const cost = estimateInitialLiquidityCost(
+    positionAccount.lowerBinId,
+    positionAccount.upperBinId,
+  );
 
   const lowerPrice = binPrice(
     fundedLower,
@@ -242,6 +251,12 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
       creationCostsIncluded: false,
       initialLiquidityValueSol,
       initialLiquidityValueUsd: usd(initialLiquidityValueSol, input.solPriceUsd),
+    },
+    creationCost: {
+      ...cost,
+      knownRequiredAccountRentUsd: usd(cost.knownRequiredAccountRentSol, input.solPriceUsd),
+      minimumWalletSolWithKnownAccountRent:
+        input.solAmount + input.gasReserveSol + cost.knownRequiredAccountRentSol,
     },
     pool: { binStepBps: input.binStepBps, baseFeeBps: input.baseFeeBps },
     buyer: {
