@@ -5,7 +5,7 @@
  * and the CLIs use — the bot is just another caller.
  */
 import 'dotenv/config';
-import { loadEnv, loadRawConfig, toParams } from '../config.js';
+import { loadEnv, loadRawConfig, toExecutionConfig, toParams } from '../config.js';
 import { disconnectPrisma, getPrisma } from '../ledger/prisma.js';
 import { publishStrategyVersion } from '../ledger/registry.js';
 import { BINS_PER_CLASSIC_POSITION } from '../poller/sdkConstants.js';
@@ -27,7 +27,9 @@ import { planInitialLiquidityForLaunch } from './launchPlanning.js';
 
 export async function createService(): Promise<LpShadowService> {
   const env = loadEnv();
-  const configParams = toParams(loadRawConfig(), BINS_PER_CLASSIC_POSITION);
+  const rawConfig = loadRawConfig();
+  const configParams = toParams(rawConfig, BINS_PER_CLASSIC_POSITION);
+  const executionConfig = toExecutionConfig(rawConfig);
   const prisma = getPrisma(env.DATABASE_URL);
 
   // Same seed the loop performs on boot; a no-op when the version exists. The
@@ -71,7 +73,8 @@ export async function createService(): Promise<LpShadowService> {
         opts,
       ),
     getStrategy: () => getStrategy(prisma),
-    planInitialLiquidity: async (input) => planInitialLiquidityForLaunch(input),
+    planInitialLiquidity: async (input) =>
+      planInitialLiquidityForLaunch(input, executionConfig.caps),
 
     pausePool: async (tenantId, poolRef) =>
       transitionMode(prisma, await resolvePoolRow(prisma, tenantId, poolRef), 'pause'),

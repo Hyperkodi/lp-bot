@@ -24,6 +24,8 @@ describe('initial-liquidity planning service', () => {
     expect(report.comparisons).toHaveLength(12);
     expect(report.strategyDecision.selected).toBe('SPOT_69');
     expect(report.strategyDecision.wideComparison).toHaveLength(3);
+    expect(report.executionCapReadiness.status).toBe('BLOCKED_BY_CONFIGURED_CAPS');
+    expect(report.executionCapReadiness.blockers).toHaveLength(3);
     const spot = report.strategyDecision.wideComparison.find(
       (candidate) => candidate.distributionShape === 'SPOT',
     )!;
@@ -36,6 +38,7 @@ describe('initial-liquidity planning service', () => {
     );
     expect(report.blockers).toContain('Project token mint address is still required.');
     expect(report.blockers.some((blocker) => blocker.includes('Standard-pool preset'))).toBe(true);
+    expect(report.blockers.some((blocker) => blocker.includes('per-transaction cap'))).toBe(true);
   });
 
   it('maps planner validation failures to the public service error', () => {

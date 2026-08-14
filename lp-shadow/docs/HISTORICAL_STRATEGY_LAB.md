@@ -248,3 +248,14 @@ for permanent delegates, transfer hooks, transfer fees, non-transferability,
 and mint/freeze authorities. Unsafe extensions and mismatched tokenomics block
 readiness; retained founder authorities require explicit acknowledgement. The
 command contains no keypair, transaction, signer, or send path.
+
+### Execution-cap readiness
+
+The planning service compares the represented-price value of the position plus
+known pool-creation rent with the executor's configured per-transaction,
+per-project 24-hour, and global 24-hour caps. The reviewed example is about
+263.78 SOL of position notional before known creation rent, so it intentionally
+does not fit the current placeholder caps of 10, 50, and 250 SOL. The Telegram
+plan reports each exceeded cap. Those caps must be deliberately approved from
+treasury policy; they must never be silently increased merely to make a launch
+pass.

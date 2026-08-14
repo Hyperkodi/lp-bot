@@ -10,6 +10,7 @@
  * so the payloads are JSON-safe if the bot ever moves out of process.
  */
 
+import type { LaunchExecutionCapReadiness } from '../strategy/launchExecutionCaps.js';
 import type { InitialLiquidityLaunchPlan } from '../strategy/launchPlanner.js';
 
 export type TenantRef = {
@@ -140,6 +141,7 @@ export type InitialLiquidityPlanningReport = {
   };
   plan: InitialLiquidityLaunchPlan;
   comparisons: InitialLiquidityLaunchPlan[];
+  executionCapReadiness: LaunchExecutionCapReadiness;
   strategyDecision: {
     selected: 'SPOT_69';
     rationale: string[];

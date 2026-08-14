@@ -3,6 +3,8 @@ import {
   planInitialLiquidity,
   type LaunchPlanInput,
 } from '../strategy/launchPlanner.js';
+import type { ExecutionCaps } from '../execution/types.js';
+import { assessLaunchExecutionCaps } from '../strategy/launchExecutionCaps.js';
 import { ServiceError } from './errors.js';
 import type {
   InitialLiquidityPlanningReport,
@@ -19,9 +21,16 @@ const DEFAULTS = Object.freeze({
   gasReserveSol: 0.05 as const,
 });
 
+const CURRENT_PLACEHOLDER_CAPS: ExecutionCaps = Object.freeze({
+  perTransactionSol: 10,
+  projectRolling24hSol: 50,
+  globalRolling24hSol: 250,
+});
+
 /** Read-only service boundary for the Telegram launch-planning flow. */
 export function planInitialLiquidityForLaunch(
   input: InitialLiquidityPlanRequest,
+  executionCaps: ExecutionCaps = CURRENT_PLACEHOLDER_CAPS,
 ): InitialLiquidityPlanningReport {
   const planningInput: LaunchPlanInput = {
     ...input,
@@ -36,6 +45,7 @@ export function planInitialLiquidityForLaunch(
   try {
     const plan = planInitialLiquidity(planningInput);
     const comparisons = compareInitialLiquidityPlans(planningInput);
+    const executionCapReadiness = assessLaunchExecutionCaps(plan, executionCaps);
     const wideComparison = comparisons
       .filter((candidate) => candidate.fundedRange.totalBins === 69)
       .map((candidate) => ({
@@ -56,6 +66,7 @@ export function planInitialLiquidityForLaunch(
       defaults: DEFAULTS,
       plan,
       comparisons,
+      executionCapReadiness,
       strategyDecision: {
         selected: 'SPOT_69',
         rationale: [
@@ -73,6 +84,8 @@ export function planInitialLiquidityForLaunch(
         'Token decimals must be verified against that mint.',
         'A Standard-pool preset supporting the provisional 50 bps bin step and 30 bps base fee must be verified on the target cluster.',
         'Exact devnet account and transaction costs require unsigned preflight.',
+        ...executionCapReadiness.blockers,
+        'Execution caps are placeholder policy values and require deliberate treasury approval before any launch.',
         'Founder confirmation is required before any execution workflow.',
       ],
     };
