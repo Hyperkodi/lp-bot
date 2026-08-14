@@ -10,6 +10,7 @@ import type { DistributionShape, PoolSnapshot } from '../types.js';
 import {
   buyCapacityAtAverageImpact,
   buyDepthWithinPriceImpact,
+  markPosition,
   openPosition,
   simulateBuyerSwap,
 } from '../virtual/position.js';
@@ -17,6 +18,7 @@ import { estimateInitialLiquidityCost, type InitialLiquidityCostEstimate } from 
 
 export const LAUNCH_PLAN_WIDTHS = Object.freeze([15, 31, 51, 69]);
 export const BUYER_CAPACITY_IMPACT_BPS = Object.freeze([50, 100, 200, 500]);
+export const DURABILITY_PRICE_CHANGES_PCT = Object.freeze([-20, -15, -10, -5, 0, 5, 10, 15, 20]);
 export const LAUNCH_PLAN_SHAPES = Object.freeze<DistributionShape[]>([
   'SPOT',
   'CURVE',
@@ -99,6 +101,17 @@ export type InitialLiquidityLaunchPlan = {
       maxOrderSol: number;
       maxOrderUsd: number | null;
       actualImpactBps: number;
+    }>;
+  };
+  durability: {
+    capacityImpactBps: 100;
+    checkpoints: Array<{
+      requestedPriceChangePct: number;
+      representedPriceChangePct: number;
+      activeBinId: number;
+      insideFundedRange: boolean;
+      maxBuyerOrderSol: number;
+      maxBuyerOrderUsd: number | null;
     }>;
   };
   policy: {
@@ -248,6 +261,30 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
       actualImpactBps: capacity.actualImpactBps,
     };
   });
+  const binFactor = 1 + input.binStepBps / 10_000;
+  const durabilityCheckpoints = DURABILITY_PRICE_CHANGES_PCT.map((requestedPriceChangePct) => {
+    const targetFactor = 1 + requestedPriceChangePct / 100;
+    const binDelta = Math.round(Math.log(targetFactor) / Math.log(binFactor));
+    const shiftedActiveBinId = activeBinId + binDelta;
+    const shiftedPrice = price.representedPriceSolPerToken * binFactor ** binDelta;
+    const shiftedSnapshot: PoolSnapshot = {
+      ...snapshot,
+      activeBinId: shiftedActiveBinId,
+      activePrice: shiftedPrice,
+    };
+    const shiftedPosition = markPosition(position, shiftedSnapshot);
+    const capacity = buyCapacityAtAverageImpact(shiftedPosition, shiftedSnapshot, 100);
+    return {
+      requestedPriceChangePct,
+      representedPriceChangePct:
+        (shiftedPrice / price.representedPriceSolPerToken - 1) * 100,
+      activeBinId: shiftedActiveBinId,
+      insideFundedRange:
+        shiftedActiveBinId >= fundedLower && shiftedActiveBinId <= fundedUpper,
+      maxBuyerOrderSol: capacity.maxOrderQuote,
+      maxBuyerOrderUsd: usd(capacity.maxOrderQuote, input.solPriceUsd),
+    };
+  });
 
   return {
     distributionShape: input.distributionShape,
@@ -294,6 +331,10 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
       estimatedBaseFeeSol,
       estimatedBaseFeeUsd: usd(estimatedBaseFeeSol, input.solPriceUsd),
       averageImpactCapacity,
+    },
+    durability: {
+      capacityImpactBps: 100,
+      checkpoints: durabilityCheckpoints,
     },
     policy: {
       opensAtPoolCreation: true,

@@ -80,6 +80,14 @@ describe('initial-liquidity launch planner', () => {
         (point, index, values) => index === 0 || point.maxOrderSol >= values[index - 1]!.maxOrderSol,
       ),
     ).toBe(true);
+    expect(plan.durability.capacityImpactBps).toBe(100);
+    expect(plan.durability.checkpoints).toHaveLength(9);
+    expect(plan.durability.checkpoints.find((point) => point.requestedPriceChangePct === 0)).toMatchObject({
+      representedPriceChangePct: 0,
+      activeBinId: plan.price.activeBinId,
+      insideFundedRange: true,
+    });
+    expect(plan.durability.checkpoints.every((point) => point.maxBuyerOrderSol >= 0)).toBe(true);
     expect(plan.policy).toEqual({
       opensAtPoolCreation: true,
       remainsDeposited: true,

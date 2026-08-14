@@ -159,6 +159,12 @@ function printSingle(plan: InitialLiquidityLaunchPlan): void {
       `  ${(point.maxAverageImpactBps / 100).toFixed(2)}%: ${number(point.maxOrderSol, 4)} SOL (${money(point.maxOrderUsd)})\n`,
     );
   }
+  process.stdout.write('1% average-impact capacity as price moves:\n');
+  for (const point of plan.durability.checkpoints) {
+    process.stdout.write(
+      `  ${point.representedPriceChangePct >= 0 ? '+' : ''}${point.representedPriceChangePct.toFixed(1)}% price: ${number(point.maxBuyerOrderSol, 4)} SOL (${money(point.maxBuyerOrderUsd)})${point.insideFundedRange ? '' : ' — out of range'}\n`,
+    );
+  }
 }
 
 function main(): void {

@@ -200,6 +200,15 @@ If buyer size is unknown, omit both buyer flags. The planner then reports the
 maximum fully filled order supported at 0.5%, 1%, 2%, and 5% modeled average
 price impact. This capacity curve is more honest than inventing one buyer; a
 specific buyer flag simply adds a point simulation alongside the curve.
+
+For a permanent, non-rebalancing initial position, the service selects the
+wide 69-bin Spot recipe as its durability-first planning default. It also
+reports the wide Curve and BidAsk alternatives: Curve can provide more opening
+depth but becomes thinner toward the sampled edges, while BidAsk deliberately
+places more inventory away from the opening price. The durability table marks
+the position forward across sampled price moves and reports remaining 1%
+average-impact buyer capacity. It is a sampled virtual comparison, not a live
+route quote or proof that the default will outperform.
 It excludes other LPs, routing, dynamic fees, and market reaction, so it is a
 planning aid rather than an executable quote or a production winner. Rules for
 adding liquidity later remain a separate policy and do not weaken the

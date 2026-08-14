@@ -140,6 +140,18 @@ export type InitialLiquidityPlanningReport = {
   };
   plan: InitialLiquidityLaunchPlan;
   comparisons: InitialLiquidityLaunchPlan[];
+  strategyDecision: {
+    selected: 'SPOT_69';
+    rationale: string[];
+    wideComparison: Array<{
+      distributionShape: 'SPOT' | 'CURVE' | 'BID_ASK';
+      openingCapacityAtOnePctSol: number;
+      minimumSampledInRangeCapacityAtOnePctSol: number;
+      downsideCoveragePct: number;
+      upsideCoveragePct: number;
+    }>;
+    evidenceLimit: string;
+  };
   blockers: string[];
 };
 

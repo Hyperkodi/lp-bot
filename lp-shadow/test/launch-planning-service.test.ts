@@ -22,6 +22,18 @@ describe('initial-liquidity planning service', () => {
     expect(report.plan.distributionShape).toBe('SPOT');
     expect(report.plan.fundedRange.totalBins).toBe(69);
     expect(report.comparisons).toHaveLength(12);
+    expect(report.strategyDecision.selected).toBe('SPOT_69');
+    expect(report.strategyDecision.wideComparison).toHaveLength(3);
+    const spot = report.strategyDecision.wideComparison.find(
+      (candidate) => candidate.distributionShape === 'SPOT',
+    )!;
+    const curve = report.strategyDecision.wideComparison.find(
+      (candidate) => candidate.distributionShape === 'CURVE',
+    )!;
+    expect(curve.openingCapacityAtOnePctSol).toBeGreaterThan(spot.openingCapacityAtOnePctSol);
+    expect(spot.minimumSampledInRangeCapacityAtOnePctSol).toBeGreaterThan(
+      curve.minimumSampledInRangeCapacityAtOnePctSol,
+    );
     expect(report.blockers).toContain('Project token mint address is still required.');
     expect(report.blockers.some((blocker) => blocker.includes('Standard-pool preset'))).toBe(true);
   });

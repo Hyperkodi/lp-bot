@@ -195,6 +195,16 @@ export function renderInitialLiquidityPlan(report: InitialLiquidityPlanningRepor
     `${numberFormatter.format(point.maxOrderSol)} SOL`,
     point.maxOrderUsd === null ? 'Unavailable' : formatMoney(point.maxOrderUsd),
   ]);
+  const durabilityRows = plan.durability.checkpoints.map((point) => [
+    `${point.representedPriceChangePct >= 0 ? '+' : ''}${numberFormatter.format(point.representedPriceChangePct)}%`,
+    `${numberFormatter.format(point.maxBuyerOrderSol)} SOL`,
+    point.insideFundedRange ? 'in' : 'out',
+  ]);
+  const wideRows = report.strategyDecision.wideComparison.map((candidate) => [
+    candidate.distributionShape,
+    `${numberFormatter.format(candidate.openingCapacityAtOnePctSol)} SOL`,
+    `${numberFormatter.format(candidate.minimumSampledInRangeCapacityAtOnePctSol)} SOL`,
+  ]);
   return [
     '<b>Initial liquidity plan — read only</b>',
     'This is a planning result, not a launch or transaction.',
@@ -203,6 +213,7 @@ export function renderInitialLiquidityPlan(report: InitialLiquidityPlanningRepor
     `Opening price: ${escapeHtml(priceFormatter.format(plan.price.representedPriceSolPerToken))} SOL/token`,
     `Represented FDV: ${escapeHtml(formatOptionalMoney(plan.price.representedFdvUsd))}`,
     `Default recipe: ${escapeHtml(plan.distributionShape)} / ${escapeHtml(String(plan.fundedRange.totalBins))} funded bins`,
+    '<b>Selected: Spot / 69</b> — durability-first for a non-rebalancing position.',
     `Pool type: ${escapeHtml(report.defaults.poolType)} (provisional preset not yet verified)`,
     `Price coverage: -${escapeHtml(numberFormatter.format(plan.fundedRange.downsidePct * 100))}% / +${escapeHtml(numberFormatter.format(plan.fundedRange.upsidePct * 100))}%`,
     `Known SDK account rent: ${escapeHtml(numberFormatter.format(plan.creationCost.knownRequiredAccountRentSol))} SOL`,
@@ -213,6 +224,11 @@ export function renderInitialLiquidityPlan(report: InitialLiquidityPlanningRepor
     '',
     '<b>Buyer capacity from this position only</b>',
     `<pre>${escapeHtml(plainTable(['Avg impact', 'Order', 'USD'], capacityRows))}</pre>`,
+    '<b>1% capacity as price moves</b>',
+    `<pre>${escapeHtml(plainTable(['Price', 'Order', 'Range'], durabilityRows))}</pre>`,
+    '<b>Wide-shape trade-off at 1% average impact</b>',
+    `<pre>${escapeHtml(plainTable(['Shape', 'Opening', 'Min sampled'], wideRows))}</pre>`,
+    escapeHtml(report.strategyDecision.evidenceLimit),
     '<b>Still required</b>',
     ...report.blockers.map((blocker) => `• ${escapeHtml(blocker)}`),
     '',
