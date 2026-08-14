@@ -33,11 +33,20 @@ Commits: `85c3f19`, fee invariant in `2321627`.
   applies each profile's bin step and launch guard, and reports drawdown,
   inventory exposure, fees, costs, range coverage, executed rebalances, and
   suppressed rebalances across deterministic stress paths.
+- Added an explicit defensive inventory policy: Treasury Defensive deploys 50%
+  base plus 15% quote and keeps the remaining 35% as undeployed quote reserve.
+  Replay tracks initial quote at risk, cumulative quote-to-base conversion, and
+  final reserve share.
+- Added a per-bin buyer simulation with 1%-impact depth, fill rate, and average
+  slippage for a fixed 10%-of-NAV order. It measures strategy-owned liquidity,
+  not the complete pool or routed execution.
 - Wired the concrete Meteora recipe to the selected distribution shape; it no
   longer always sends Spot.
 - The initial synthetic report is recorded in
   `lp-shadow/docs/STRATEGY_LAB.md`. It deliberately selects no winner and found
-  that balanced BidAsk does not provide the promised downside protection.
+  that balanced BidAsk did not provide the promised downside protection. The
+  reserve model reduced synthetic launch-drawdown maximum drawdown from 70.2%
+  to 46.0%, but the same scenario exposed a severe buyer-slippage trade-off.
 
 Commit: `e0aeb26`.
 
@@ -174,11 +183,13 @@ Commit: `7ac7cdb`.
 - `TODO(profile-replay)`: tune all three profile parameter sets and the 24-hour
   launch guard from historical replay/live shadow evidence. The deterministic
   stress lab is implemented but is not historical evidence.
-- Redesign Treasury Defensive around an explicit asymmetric inventory budget or
-  one-sided range; balanced BidAsk finished the synthetic launch drawdown fully
-  exposed to the falling base token.
-- Add a buyer-slippage/depth model before claiming that Market Depth improves
-  execution quality; time in range is only a proxy.
+- Validate Treasury Defensive's provisional 15% quote exposure against a
+  one-sided ask alternative using training and holdout launch data. The reserve
+  model exists, but synthetic data cannot choose a production value.
+- Validate the buyer depth/slippage model against complete pool bin state and
+  real routed quotes before claiming that Market Depth improves execution. The
+  current strategy-only simulation found that its wider range reduced
+  near-spot depth in the synthetic suite.
 - Choose the performance fee percentage (and whether it differs by profile).
   The schema and principal-protection invariant exist; no rate was chosen.
 - Failed launch remains alert-only, acting only on founder instruction. No

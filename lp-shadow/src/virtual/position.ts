@@ -10,11 +10,30 @@ import { binPrice, isInRange } from '../binMath.js';
 import type {
   CostEstimate,
   DistributionShape,
+  InventoryPolicy,
   Params,
   PoolSnapshot,
   VirtualBin,
   VirtualPosition,
 } from '../types.js';
+
+export const BALANCED_INVENTORY_POLICY: Readonly<InventoryPolicy> = Object.freeze({
+  deployedBaseShare: 0.5,
+  deployedQuoteShare: 0.5,
+});
+
+function validateInventoryPolicy(policy: InventoryPolicy): void {
+  const { deployedBaseShare, deployedQuoteShare } = policy;
+  if (
+    !Number.isFinite(deployedBaseShare) ||
+    !Number.isFinite(deployedQuoteShare) ||
+    deployedBaseShare < 0 ||
+    deployedQuoteShare < 0 ||
+    deployedBaseShare + deployedQuoteShare > 1
+  ) {
+    throw new Error('inventory policy shares must be finite, non-negative, and sum to at most 1');
+  }
+}
 
 function shapeWeight(
   shape: DistributionShape,
@@ -43,11 +62,13 @@ export function distributeByShape(
   activePrice: number,
   valueQuote: number,
   shape: DistributionShape,
+  inventoryPolicy: InventoryPolicy = BALANCED_INVENTORY_POLICY,
 ): VirtualBin[] {
   const nBins = upperBinId - lowerBinId + 1;
   if (nBins <= 0) throw new Error('distributeByShape: empty range');
   if (!(activePrice > 0)) throw new Error('distributeByShape: non-positive price');
   if (!(valueQuote >= 0)) throw new Error('distributeByShape: negative value');
+  validateInventoryPolicy(inventoryPolicy);
 
   const rows = Array.from({ length: nBins }, (_, offset) => {
     const binId = lowerBinId + offset;
@@ -65,10 +86,10 @@ export function distributeByShape(
     0,
   );
 
-  // Centred strategy ranges always have both sides. These fallbacks keep the
-  // pure helper well-defined for one-sided fixtures and future withdrawals.
-  const quoteBudget = baseWeight > 0 ? valueQuote / 2 : valueQuote;
-  const baseBudget = quoteWeight > 0 ? valueQuote / 2 : valueQuote;
+  // Each side receives only the budget allowed by the inventory policy. Any
+  // undeployed value is accounted for as reserve by `allocatePosition`.
+  const quoteBudget = valueQuote * inventoryPolicy.deployedQuoteShare;
+  const baseBudget = valueQuote * inventoryPolicy.deployedBaseShare;
   return rows.map(({ binId, weight }) => {
     const quoteShare = binId < activeBinId ? weight : binId === activeBinId ? weight / 2 : 0;
     const baseShare = binId > activeBinId ? weight : binId === activeBinId ? weight / 2 : 0;
@@ -122,7 +143,35 @@ function totals(bins: VirtualBin[]): { base: number; quote: number } {
 
 /** Mark-to-market value of the position's inventory, excluding pending fees. */
 export function positionValueQuote(position: VirtualPosition, price: number): number {
-  return position.base * price + position.quote;
+  return position.base * price + position.quote + position.reserveQuote;
+}
+
+function allocatePosition(
+  lowerBinId: number,
+  upperBinId: number,
+  activeBinId: number,
+  activePrice: number,
+  valueQuote: number,
+  distributionShape: DistributionShape,
+  inventoryPolicy: InventoryPolicy,
+): { bins: VirtualBin[]; base: number; quote: number; reserveQuote: number } {
+  const bins = distributeByShape(
+    lowerBinId,
+    upperBinId,
+    activeBinId,
+    activePrice,
+    valueQuote,
+    distributionShape,
+    inventoryPolicy,
+  );
+  const { base, quote } = totals(bins);
+  const deployedValue = base * activePrice + quote;
+  return {
+    bins,
+    base,
+    quote,
+    reserveQuote: Math.max(0, valueQuote - deployedValue),
+  };
 }
 
 export function openPosition(
@@ -131,23 +180,25 @@ export function openPosition(
   upperBinId: number,
   navUsd: number,
   distributionShape: DistributionShape = 'SPOT',
+  inventoryPolicy: InventoryPolicy = BALANCED_INVENTORY_POLICY,
 ): VirtualPosition {
-  const bins = distributeByShape(
+  const allocation = allocatePosition(
     lowerBinId,
     upperBinId,
     snapshot.activeBinId,
     snapshot.activePrice,
     navUsd,
     distributionShape,
+    inventoryPolicy,
   );
-  const { base, quote } = totals(bins);
   return {
     status: 'ACTIVE',
     lowerBinId,
     upperBinId,
-    base,
-    quote,
-    bins,
+    base: allocation.base,
+    quote: allocation.quote,
+    reserveQuote: allocation.reserveQuote,
+    bins: allocation.bins,
     pendingFeesQuote: 0,
     cumFeesQuote: 0,
     cumCostsQuote: 0,
@@ -217,6 +268,98 @@ export function ourLiquidityInActiveBin(
   return bin.base * snapshot.activePrice + bin.quote;
 }
 
+export type BuyerSwapSimulation = {
+  requestedQuoteUsd: number;
+  filledQuoteUsd: number;
+  baseReceived: number;
+  averagePrice: number | null;
+  slippageBps: number;
+  fillRate: number;
+};
+
+/**
+ * Simulates a quote-to-base buyer walking only this virtual position's bins.
+ * It deliberately excludes pool liquidity owned by other LPs and swap fees,
+ * making this a profile contribution metric rather than a full route quote.
+ */
+export function simulateBuyerSwap(
+  position: VirtualPosition,
+  snapshot: PoolSnapshot,
+  requestedQuoteUsd: number,
+): BuyerSwapSimulation {
+  if (!Number.isFinite(requestedQuoteUsd) || requestedQuoteUsd < 0) {
+    throw new Error('buyer quote notional must be finite and non-negative');
+  }
+  if (position.status === 'EXITED' || requestedQuoteUsd === 0) {
+    return {
+      requestedQuoteUsd,
+      filledQuoteUsd: 0,
+      baseReceived: 0,
+      averagePrice: null,
+      slippageBps: 0,
+      fillRate: requestedQuoteUsd === 0 ? 1 : 0,
+    };
+  }
+
+  let remaining = requestedQuoteUsd;
+  let filledQuoteUsd = 0;
+  let baseReceived = 0;
+  const sellBins = position.bins
+    .filter((bin) => bin.binId >= snapshot.activeBinId && bin.base > 0)
+    .sort((a, b) => a.binId - b.binId);
+  for (const bin of sellBins) {
+    if (remaining <= 0) break;
+    const price = binPrice(
+      bin.binId,
+      snapshot.activeBinId,
+      snapshot.activePrice,
+      snapshot.binStepBps,
+    );
+    if (!(price > 0)) continue;
+    const fillQuote = Math.min(remaining, bin.base * price);
+    filledQuoteUsd += fillQuote;
+    baseReceived += fillQuote / price;
+    remaining -= fillQuote;
+  }
+
+  const averagePrice = baseReceived > 0 ? filledQuoteUsd / baseReceived : null;
+  const slippageBps =
+    averagePrice !== null && snapshot.activePrice > 0
+      ? Math.max(0, (averagePrice / snapshot.activePrice - 1) * 10_000)
+      : 0;
+  return {
+    requestedQuoteUsd,
+    filledQuoteUsd,
+    baseReceived,
+    averagePrice,
+    slippageBps,
+    fillRate: requestedQuoteUsd > 0 ? filledQuoteUsd / requestedQuoteUsd : 1,
+  };
+}
+
+/** Quote a buyer can spend before reaching the requested marginal impact. */
+export function buyDepthWithinPriceImpact(
+  position: VirtualPosition,
+  snapshot: PoolSnapshot,
+  maxImpactBps: number,
+): number {
+  if (!Number.isFinite(maxImpactBps) || maxImpactBps < 0) {
+    throw new Error('maximum price impact must be finite and non-negative');
+  }
+  if (position.status === 'EXITED' || !(snapshot.activePrice > 0)) return 0;
+  const limitPrice = snapshot.activePrice * (1 + maxImpactBps / 10_000);
+  return position.bins.reduce((depth, bin) => {
+    if (bin.binId < snapshot.activeBinId || bin.base <= 0) return depth;
+    const price = binPrice(
+      bin.binId,
+      snapshot.activeBinId,
+      snapshot.activePrice,
+      snapshot.binStepBps,
+    );
+    return price <= limitPrice ? depth + bin.base * price : depth;
+  }, 0);
+}
+
 /**
  * DLMM pays swap fees only to liquidity in the active bin, so our take is our
  * share of that bin (§9).
@@ -267,25 +410,27 @@ export function applyCompound(
   snapshot: PoolSnapshot,
   costEst: CostEstimate,
   distributionShape: DistributionShape = 'SPOT',
+  inventoryPolicy: InventoryPolicy = BALANCED_INVENTORY_POLICY,
 ): VirtualPosition {
   const value =
     positionValueQuote(position, snapshot.activePrice) +
     position.pendingFeesQuote -
     costEst.totalUsd;
-  const bins = distributeByShape(
+  const allocation = allocatePosition(
     position.lowerBinId,
     position.upperBinId,
     snapshot.activeBinId,
     snapshot.activePrice,
     Math.max(0, value),
     distributionShape,
+    inventoryPolicy,
   );
-  const { base, quote } = totals(bins);
   return {
     ...position,
-    bins,
-    base,
-    quote,
+    bins: allocation.bins,
+    base: allocation.base,
+    quote: allocation.quote,
+    reserveQuote: allocation.reserveQuote,
     pendingFeesQuote: 0,
     cumCostsQuote: position.cumCostsQuote + costEst.totalUsd,
     lastMarkPrice: snapshot.activePrice,
@@ -304,27 +449,29 @@ export function applyRebalance(
   newUpperBin: number,
   costEst: CostEstimate,
   distributionShape: DistributionShape = 'SPOT',
+  inventoryPolicy: InventoryPolicy = BALANCED_INVENTORY_POLICY,
 ): VirtualPosition {
   const value =
     positionValueQuote(position, snapshot.activePrice) +
     position.pendingFeesQuote -
     costEst.totalUsd;
-  const bins = distributeByShape(
+  const allocation = allocatePosition(
     newLowerBin,
     newUpperBin,
     snapshot.activeBinId,
     snapshot.activePrice,
     Math.max(0, value),
     distributionShape,
+    inventoryPolicy,
   );
-  const { base, quote } = totals(bins);
   return {
     ...position,
     lowerBinId: newLowerBin,
     upperBinId: newUpperBin,
-    bins,
-    base,
-    quote,
+    bins: allocation.bins,
+    base: allocation.base,
+    quote: allocation.quote,
+    reserveQuote: allocation.reserveQuote,
     pendingFeesQuote: 0,
     cumCostsQuote: position.cumCostsQuote + costEst.totalUsd,
     lastRebalanceAt: snapshot.ts,
@@ -352,6 +499,7 @@ export function applyExit(
     bins: [],
     base: snapshot.activePrice > 0 ? value / 2 / snapshot.activePrice : 0,
     quote: value / 2,
+    reserveQuote: 0,
     pendingFeesQuote: 0,
     cumCostsQuote: position.cumCostsQuote + costEst.totalUsd,
     oorSince: null,

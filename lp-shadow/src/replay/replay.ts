@@ -34,6 +34,7 @@ import { applyLaunchGuard } from '../strategy/launchGuard.js';
 import type {
   CostInputs,
   DistributionShape,
+  InventoryPolicy,
   Params,
   PoolSnapshot,
   VirtualPosition,
@@ -44,8 +45,12 @@ import {
   applyCompound,
   applyExit,
   applyRebalance,
+  BALANCED_INVENTORY_POLICY,
+  buyDepthWithinPriceImpact,
   markPosition,
   openPosition,
+  positionValueQuote,
+  simulateBuyerSwap,
 } from '../virtual/position.js';
 
 type Args = {
@@ -87,6 +92,7 @@ export type Variant = {
   poolCreatedAtMs?: number;
   profileSlug?: string;
   defaultBinStepBps?: number;
+  inventoryPolicy?: InventoryPolicy;
 };
 
 export function loadVariants(base: RawConfig, paramsFile: string | undefined, label?: string): Variant[] {
@@ -167,6 +173,15 @@ export type ReplayResult = {
   finalBaseSharePct: number;
   suppressedRebalances: number;
   averageRangeBins: number;
+  initialQuoteAtRiskUsd: number;
+  cumulativeQuoteConvertedToBaseUsd: number;
+  finalReserveQuoteUsd: number;
+  finalReserveSharePct: number;
+  buyerOrderUsd: number;
+  averageBuyDepth1PctUsd: number;
+  minimumBuyDepth1PctUsd: number;
+  averageBuyerSlippageBps: number;
+  buyerOrderFillRate: number;
   ticks: number;
   events: {
     ts: number;
@@ -194,10 +209,21 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
   let peakNavUsd = 0;
   let maxDrawdownPct = 0;
   let finalBaseSharePct = 0;
+  let cumulativeQuoteConvertedToBaseUsd = 0;
+  let finalReserveQuoteUsd = 0;
+  let finalReserveSharePct = 0;
+  let buyDepth1PctTotal = 0;
+  let minimumBuyDepth1PctUsd = Number.POSITIVE_INFINITY;
+  let buyerSlippageBpsTotal = 0;
+  let buyerSlippageTicks = 0;
+  let buyerOrderFillRateTotal = 0;
   const events: ReplayResult['events'] = [];
   let lastMarks = { hodlNavUsd: 0, fullRangeUsd: 0, strategyUsd: 0 };
   const distributionShape = variant.distributionShape ?? 'SPOT';
+  const inventoryPolicy = variant.inventoryPolicy ?? BALANCED_INVENTORY_POLICY;
   const poolCreatedAtMs = variant.poolCreatedAtMs ?? stored[0]?.snapshot.ts;
+  const buyerOrderUsd = params.virtualNavUsd * 0.1;
+  const initialQuoteAtRiskUsd = params.virtualNavUsd * inventoryPolicy.deployedQuoteShare;
 
   for (const { snapshot, costInputs, id } of stored) {
     const updated = updateRegime(regime, snapshot, params);
@@ -213,11 +239,14 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
         plan.upperBinId,
         params.virtualNavUsd,
         distributionShape,
+        inventoryPolicy,
       );
       benchmarks = initBenchmarks(snapshot, params.virtualNavUsd);
     }
 
+    const deployedQuoteBeforeMark = position.quote;
     position = markPosition(position, snapshot);
+    cumulativeQuoteConvertedToBaseUsd += Math.max(0, deployedQuoteBeforeMark - position.quote);
     position = accrueFees(position, snapshot).position;
     if (benchmarks) benchmarks = creditFullRangeFees(benchmarks, snapshot);
 
@@ -249,6 +278,7 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
           snapshot,
           estimateCost('COMPOUND', costInputs, params),
           distributionShape,
+          inventoryPolicy,
         );
         compounds += 1;
         break;
@@ -260,6 +290,7 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
           decision.newUpperBin,
           decision.costEst,
           distributionShape,
+          inventoryPolicy,
         );
         rebalances += 1;
         break;
@@ -277,10 +308,22 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
     if (peakNavUsd > 0) {
       maxDrawdownPct = Math.max(maxDrawdownPct, (peakNavUsd - navUsd) / peakNavUsd);
     }
-    const inventoryValue = position.base * snapshot.activePrice + position.quote;
+    const inventoryValue = positionValueQuote(position, snapshot.activePrice);
     finalBaseSharePct = inventoryValue > 0
       ? (position.base * snapshot.activePrice) / inventoryValue
       : 0;
+    finalReserveQuoteUsd = position.reserveQuote;
+    finalReserveSharePct = inventoryValue > 0 ? position.reserveQuote / inventoryValue : 0;
+
+    const buyDepth1PctUsd = buyDepthWithinPriceImpact(position, snapshot, 100);
+    const buyerSwap = simulateBuyerSwap(position, snapshot, buyerOrderUsd);
+    buyDepth1PctTotal += buyDepth1PctUsd;
+    minimumBuyDepth1PctUsd = Math.min(minimumBuyDepth1PctUsd, buyDepth1PctUsd);
+    if (buyerSwap.filledQuoteUsd > 0) {
+      buyerSlippageBpsTotal += buyerSwap.slippageBps;
+      buyerSlippageTicks += 1;
+    }
+    buyerOrderFillRateTotal += buyerSwap.fillRate;
 
     if (guarded.suppressedDecision?.kind === 'REBALANCE') {
       events.push({
@@ -320,6 +363,17 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
     finalBaseSharePct,
     suppressedRebalances,
     averageRangeBins: ticks > 0 ? rangeBinsTotal / ticks : 0,
+    initialQuoteAtRiskUsd,
+    cumulativeQuoteConvertedToBaseUsd,
+    finalReserveQuoteUsd,
+    finalReserveSharePct,
+    buyerOrderUsd,
+    averageBuyDepth1PctUsd: ticks > 0 ? buyDepth1PctTotal / ticks : 0,
+    minimumBuyDepth1PctUsd:
+      ticks > 0 && Number.isFinite(minimumBuyDepth1PctUsd) ? minimumBuyDepth1PctUsd : 0,
+    averageBuyerSlippageBps:
+      buyerSlippageTicks > 0 ? buyerSlippageBpsTotal / buyerSlippageTicks : 0,
+    buyerOrderFillRate: ticks > 0 ? buyerOrderFillRateTotal / ticks : 0,
     ticks,
     events,
   };
@@ -340,6 +394,10 @@ function printTable(results: ReplayResult[]): void {
     ['in-range', (r) => `${(r.timeInRange * 100).toFixed(1)}%`],
     ['max DD', (r) => `${(r.maxDrawdownPct * 100).toFixed(1)}%`],
     ['base', (r) => `${(r.finalBaseSharePct * 100).toFixed(1)}%`],
+    ['reserve', (r) => `${(r.finalReserveSharePct * 100).toFixed(1)}%`],
+    ['depth 1%', (r) => r.averageBuyDepth1PctUsd.toFixed(0)],
+    ['buy fill', (r) => `${(r.buyerOrderFillRate * 100).toFixed(1)}%`],
+    ['buy slip', (r) => `${r.averageBuyerSlippageBps.toFixed(1)}bp`],
     ['guarded', (r) => String(r.suppressedRebalances)],
     ['exited', (r) => (r.exited ? 'yes' : 'no')],
   ];

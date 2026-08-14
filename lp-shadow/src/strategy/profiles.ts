@@ -1,6 +1,6 @@
-import type { DistributionShape, Params } from '../types.js';
+import type { DistributionShape, InventoryPolicy, Params } from '../types.js';
 
-export type { DistributionShape } from '../types.js';
+export type { DistributionShape, InventoryPolicy } from '../types.js';
 
 export type StrategyProfileSlug = 'fee-maximizer' | 'market-depth' | 'treasury-defensive';
 type ProfileParams = Pick<
@@ -15,11 +15,16 @@ export type StrategyProfileDefinition = {
   tradeoff: string;
   params: Readonly<ProfileParams>;
   distributionShape: DistributionShape;
+  inventoryPolicy: Readonly<InventoryPolicy>;
   defaultBinStepBps: number;
   launchGuardHours: number;
 };
 
 const LAUNCH_GUARD_HOURS = 24;
+const BALANCED_INVENTORY = Object.freeze({
+  deployedBaseShare: 0.5,
+  deployedQuoteShare: 0.5,
+});
 
 // TODO(profile-replay): all numeric profile values, including the shared 24h
 // launch guard, are initial configuration. Tune them only from replay and live
@@ -41,6 +46,7 @@ export const STRATEGY_PROFILES: Readonly<
       costCoverageMultiple: 2,
     }),
     distributionShape: 'CURVE',
+    inventoryPolicy: BALANCED_INVENTORY,
     defaultBinStepBps: 10,
     launchGuardHours: LAUNCH_GUARD_HOURS,
   }),
@@ -57,13 +63,15 @@ export const STRATEGY_PROFILES: Readonly<
       costCoverageMultiple: 4,
     }),
     distributionShape: 'SPOT',
+    inventoryPolicy: BALANCED_INVENTORY,
     defaultBinStepBps: 25,
     launchGuardHours: LAUNCH_GUARD_HOURS,
   }),
   'treasury-defensive': Object.freeze({
     slug: 'treasury-defensive',
     name: 'Treasury Defensive',
-    description: 'A wide BidAsk distribution with conservative re-entry during volatile launches.',
+    description:
+      'A wide BidAsk distribution that caps deployed quote and keeps the remainder in reserve.',
     tradeoff:
       'Lowest fee revenue; prioritizes converting less of the treasury into the falling side.',
     params: Object.freeze({
@@ -74,6 +82,10 @@ export const STRATEGY_PROFILES: Readonly<
       costCoverageMultiple: 5,
     }),
     distributionShape: 'BID_ASK',
+    inventoryPolicy: Object.freeze({
+      deployedBaseShare: 0.5,
+      deployedQuoteShare: 0.15,
+    }),
     defaultBinStepBps: 50,
     launchGuardHours: LAUNCH_GUARD_HOURS,
   }),

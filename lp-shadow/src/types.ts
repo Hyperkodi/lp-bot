@@ -29,6 +29,16 @@ export type PoolSnapshot = {
 export type DistributionShape = 'SPOT' | 'CURVE' | 'BID_ASK';
 
 /**
+ * Fraction of total strategy NAV deployed into each token side of the DLMM.
+ * Any remainder is held as quote outside the bins, so it cannot be converted
+ * into base by a falling market.
+ */
+export type InventoryPolicy = {
+  deployedBaseShare: number;
+  deployedQuoteShare: number;
+};
+
+/**
  * A single bin of the simulated position.
  *
  * DLMM bins hold one asset on each side of the active bin: bins below the
@@ -50,6 +60,8 @@ export type VirtualPosition = {
   /** Aggregate virtual holdings inside the position (sum over `bins`). */
   base: number;
   quote: number;
+  /** Quote held outside the DLMM bins and therefore unavailable to swaps. */
+  reserveQuote: number;
   /** Per-bin inventory; the source of truth that `base`/`quote` summarize. */
   bins: VirtualBin[];
   /** Accrued, not yet compounded. */

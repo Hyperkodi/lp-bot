@@ -31,10 +31,12 @@ if (process.argv.includes('--json')) {
   process.stdout.write('Strategy lab — deterministic synthetic stress suite\n');
   process.stdout.write('These results are engineering checks, not historical evidence or launch approval.\n\n');
   printResults(results);
+  process.stdout.write('\nBuyer experience (10% of initial strategy NAV, strategy-owned bins only):\n');
+  printBuyerResults(results);
   process.stdout.write('\nKnown evidence gaps:\n');
   process.stdout.write('- Historical launch snapshots have not been supplied yet.\n');
-  process.stdout.write('- Time-in-range is only a proxy for market depth; buyer slippage is not modeled yet.\n');
-  process.stdout.write('- Treasury Defensive is balanced BidAsk today; asymmetric downside protection is not modeled yet.\n');
+  process.stdout.write('- Buyer depth excludes other LPs, swap fees, routing, and market reaction.\n');
+  process.stdout.write('- Treasury Defensive\'s 15% quote exposure is an initial value, not a production recommendation.\n');
   process.stdout.write('- Re-binning isolates bin-step behavior but assumes unchanged fees, volume, and outside liquidity.\n');
   process.stdout.write('\nNo winning profile is selected from synthetic data.\n');
 }
@@ -53,6 +55,31 @@ function printResults(rows: ProfileScenarioResult[]) {
     ['rebal', (row) => String(row.replay.rebalances)],
     ['guarded', (row) => String(row.replay.suppressedRebalances)],
     ['base', (row) => `${(row.replay.finalBaseSharePct * 100).toFixed(1)}%`],
+    ['reserve', (row) => `${(row.replay.finalReserveSharePct * 100).toFixed(1)}%`],
+    ['initial q-risk', (row) => row.replay.initialQuoteAtRiskUsd.toFixed(0)],
+    ['cum q->base', (row) => row.replay.cumulativeQuoteConvertedToBaseUsd.toFixed(0)],
+  ];
+  const widths = columns.map(([heading, render]) =>
+    Math.max(heading.length, ...rows.map((row) => render(row).length)),
+  );
+  const line = (cells: string[]) =>
+    cells.map((cell, index) => cell.padStart(widths[index]!)).join('  ');
+  process.stdout.write(`${line(columns.map(([heading]) => heading))}\n`);
+  process.stdout.write(`${line(widths.map((width) => '-'.repeat(width)))}\n`);
+  for (const row of rows) {
+    process.stdout.write(`${line(columns.map(([, render]) => render(row)))}\n`);
+  }
+}
+
+function printBuyerResults(rows: ProfileScenarioResult[]) {
+  const columns: [string, (row: ProfileScenarioResult) => string][] = [
+    ['scenario', (row) => row.scenario],
+    ['profile', (row) => row.profileSlug],
+    ['order', (row) => row.replay.buyerOrderUsd.toFixed(0)],
+    ['avg depth <=1%', (row) => row.replay.averageBuyDepth1PctUsd.toFixed(0)],
+    ['min depth <=1%', (row) => row.replay.minimumBuyDepth1PctUsd.toFixed(0)],
+    ['fill', (row) => `${(row.replay.buyerOrderFillRate * 100).toFixed(1)}%`],
+    ['avg slip on fills', (row) => `${row.replay.averageBuyerSlippageBps.toFixed(1)}bp`],
   ];
   const widths = columns.map(([heading, render]) =>
     Math.max(heading.length, ...rows.map((row) => render(row).length)),

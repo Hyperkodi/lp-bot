@@ -149,6 +149,14 @@ Honest about its approximations, because the point of Phase 1 is evidence:
 - **Profile shapes are distinct.** Strategy comparison simulates the same
   middle-heavy Curve, even Spot, and edge-heavy BidAsk families selected for
   Meteora execution. See `docs/STRATEGY_LAB.md` for the remaining evidence gaps.
+- **Defensive quote exposure is explicit.** Treasury Defensive keeps 35% of
+  initial NAV as undeployed quote reserve and exposes 15% to downward bin
+  conversion; the starting base side remains 50%, preserving a fair HODL
+  comparison. These are provisional stress-test values, not launch approval.
+- **Buyer depth is walked bin by bin.** Replay reports quote capacity within 1%
+  marginal price impact plus fill and average slippage on snapshots with a fill
+  for a fixed 10%-of-NAV buy. It measures this strategy's contribution only,
+  excluding other LPs, swap fees, routing, and market reaction.
 - **Fees are approximated.** DLMM pays only the active bin, so the simulation
   takes `ourLiq / (poolActiveBinLiq + ourLiq)` of the interval's pool fees. The
   interval fee figure is a delta of the pool's lifetime `trade_fee` counter (or,

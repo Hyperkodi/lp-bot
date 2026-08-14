@@ -136,6 +136,7 @@ export function serializePosition(position: VirtualPosition): Record<string, unk
     upperBinId: position.upperBinId,
     base: position.base,
     quote: position.quote,
+    reserveQuote: position.reserveQuote,
     bins: position.bins,
     pendingFeesQuote: position.pendingFeesQuote,
     cumFeesQuote: position.cumFeesQuote,
@@ -158,7 +159,10 @@ export function deserializePosition(raw: unknown): VirtualPosition | null {
   >;
   if (source.status !== 'ACTIVE' && source.status !== 'EXITED') return null;
   if (!Array.isArray(source.bins)) return null;
-  return source as unknown as VirtualPosition;
+  return {
+    ...source,
+    reserveQuote: typeof source.reserveQuote === 'number' ? source.reserveQuote : 0,
+  } as unknown as VirtualPosition;
 }
 
 // ---- KeyValue cursors -------------------------------------------------------

@@ -7,6 +7,7 @@ export type ProfileVariant = Variant & {
   distributionShape: (typeof STRATEGY_PROFILES)[StrategyProfileSlug]['distributionShape'];
   defaultBinStepBps: number;
   launchGuardHours: number;
+  inventoryPolicy: (typeof STRATEGY_PROFILES)[StrategyProfileSlug]['inventoryPolicy'];
 };
 
 export function profileVariants(baseline: Params): ProfileVariant[] {
@@ -19,6 +20,7 @@ export function profileVariants(baseline: Params): ProfileVariant[] {
       distributionShape: profile.distributionShape,
       defaultBinStepBps: profile.defaultBinStepBps,
       launchGuardHours: profile.launchGuardHours,
+      inventoryPolicy: profile.inventoryPolicy,
     };
   });
 }

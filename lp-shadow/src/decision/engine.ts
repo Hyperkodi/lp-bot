@@ -31,7 +31,12 @@ function pct(n: number, digits = 2): string {
 
 /** NAV of the virtual position marked at the snapshot price, incl. pending fees. */
 export function positionNavUsd(position: VirtualPosition, snapshot: PoolSnapshot): number {
-  return position.base * snapshot.activePrice + position.quote + position.pendingFeesQuote;
+  return (
+    position.base * snapshot.activePrice +
+    position.quote +
+    position.reserveQuote +
+    position.pendingFeesQuote
+  );
 }
 
 /**

@@ -46,6 +46,21 @@ describe('founder strategy profiles', () => {
     expect(STRATEGY_PROFILES['market-depth'].distributionShape).toBe('SPOT');
     expect(STRATEGY_PROFILES['treasury-defensive'].distributionShape).toBe('BID_ASK');
   });
+
+  it('limits only Treasury Defensive quote exposure and holds the rest in reserve', () => {
+    expect(STRATEGY_PROFILES['fee-maximizer'].inventoryPolicy).toEqual({
+      deployedBaseShare: 0.5,
+      deployedQuoteShare: 0.5,
+    });
+    expect(STRATEGY_PROFILES['market-depth'].inventoryPolicy).toEqual({
+      deployedBaseShare: 0.5,
+      deployedQuoteShare: 0.5,
+    });
+    expect(STRATEGY_PROFILES['treasury-defensive'].inventoryPolicy).toEqual({
+      deployedBaseShare: 0.5,
+      deployedQuoteShare: 0.15,
+    });
+  });
 });
 
 describe.skipIf(!hasDatabase)('strategy profile ledger', () => {

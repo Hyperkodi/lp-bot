@@ -2,6 +2,7 @@ export {
   STRATEGY_PROFILES,
   paramsForProfile,
   type DistributionShape,
+  type InventoryPolicy,
   type StrategyProfileDefinition,
   type StrategyProfileSlug,
 } from './profiles.js';

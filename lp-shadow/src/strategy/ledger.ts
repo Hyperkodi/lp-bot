@@ -22,8 +22,17 @@ function canonicalJson(value: unknown): string {
 
 function strategyParams(baseline: Params, slug: StrategyProfileSlug): Record<string, number> {
   const params = paramsForProfile(baseline, slug);
+  const inventoryPolicy = STRATEGY_PROFILES[slug].inventoryPolicy;
   const { widthK, oorDwellMin, edgeOvershootPct, settleMin, costCoverageMultiple } = params;
-  return { widthK, oorDwellMin, edgeOvershootPct, settleMin, costCoverageMultiple };
+  return {
+    widthK,
+    oorDwellMin,
+    edgeOvershootPct,
+    settleMin,
+    costCoverageMultiple,
+    deployedBaseShare: inventoryPolicy.deployedBaseShare,
+    deployedQuoteShare: inventoryPolicy.deployedQuoteShare,
+  };
 }
 
 /** Publish immutable built-in versions, creating a new version only when an
@@ -93,4 +102,3 @@ export async function publishBuiltInProfiles(
 
   return published;
 }
-
