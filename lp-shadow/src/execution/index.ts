@@ -6,6 +6,12 @@ export {
   TOKEN_PROGRAM_ID,
 } from './inspect.js';
 export { ExecutionPipeline, type ExecutionAlert } from './pipeline.js';
+export {
+  PERMANENT_INITIAL_POSITION_ROLE,
+  assertPermanentInitialLiquidityAction,
+  enforcePositionPolicy,
+  type InitialLiquidityInitiator,
+} from './initialLiquidityPolicy.js';
 export { PrismaExecutionStore } from './prismaStore.js';
 export { DevnetRpc } from './rpc.js';
 export { createPrismaCustodySigner } from './custodySigner.js';

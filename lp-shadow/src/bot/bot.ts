@@ -9,6 +9,7 @@ import {
   chunkMessage,
   escapeHtml,
   renderAddConfirmation,
+  renderInitialLiquidityPlan,
   renderPoolPreview,
   renderPools,
   renderReplay,
@@ -34,6 +35,7 @@ export const BOT_COMMANDS = [
   { command: 'start', description: 'Link this chat with a one-time handoff' },
   { command: 'help', description: 'Show commands and the safety guarantee' },
   { command: 'add', description: 'Add a Meteora DLMM pool to shadow' },
+  { command: 'launchplan', description: 'Plan permanent initial liquidity (read only)' },
   { command: 'pools', description: 'List your shadow pools' },
   { command: 'status', description: 'Show performance and recent activity' },
   { command: 'why', description: 'Explain the latest decision trail' },
@@ -53,6 +55,7 @@ const HELP = [
   '/start &lt;token&gt; — link this chat from the Armara bot',
   '/help — show this command list',
   '/add &lt;address&gt; — preview and add a pool',
+  '/launchplan — model permanent initial liquidity without launching',
   '/pools — list pools, modes, sizes, and data age',
   '/status [pool] — performance and recent decisions',
   '/why [pool] — the latest decision trail',
@@ -91,11 +94,16 @@ type PendingRemoveConfirm = {
   nonce: string;
 };
 
+type PendingLaunchInput = {
+  kind: 'launch-input';
+  tenantId: string;
+};
+
 function newNonce(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-type PendingState = PendingAddSize | PendingAddConfirm | PendingRemoveConfirm;
+type PendingState = PendingAddSize | PendingAddConfirm | PendingRemoveConfirm | PendingLaunchInput;
 type Handler = (ctx: Context) => Promise<void>;
 type ReplyOptions = NonNullable<Parameters<Context['reply']>[1]>;
 
@@ -169,6 +177,34 @@ function parsePositiveAmount(text: string): number | null {
   if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(trimmed)) return null;
   const amount = Number(trimmed);
   return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+function parseLaunchInput(text: string): {
+  tokenAmount: number;
+  solAmount: number;
+  tokenSupply: number;
+  tokenDecimals: number;
+  solPriceUsd: number;
+} | null {
+  const parts = text.trim().split(/[\s,]+/);
+  if (parts.length !== 5) return null;
+  const values = parts.map(parsePositiveAmount);
+  if (values.some((value) => value === null)) return null;
+  const [tokenAmount, solAmount, tokenSupply, tokenDecimals, solPriceUsd] = values;
+  if (
+    tokenDecimals === null ||
+    tokenDecimals === undefined ||
+    !Number.isInteger(tokenDecimals) ||
+    tokenDecimals < 0 ||
+    tokenDecimals > 18
+  ) return null;
+  return {
+    tokenAmount: tokenAmount!,
+    solAmount: solAmount!,
+    tokenSupply: tokenSupply!,
+    tokenDecimals: tokenDecimals!,
+    solPriceUsd: solPriceUsd!,
+  };
 }
 
 export function createLpBot(token: string, service: LpShadowService): Bot {
@@ -339,6 +375,30 @@ export function createLpBot(token: string, service: LpShadowService): Bot {
   );
 
   bot.command(
+    'launchplan',
+    withErrors(async (ctx) => {
+      const id = chatId(ctx);
+      pending.delete(id);
+      const tenant = await requireTenant(ctx, service);
+      if (!tenant) return;
+      pending.set(id, { kind: 'launch-input', tenantId: tenant.tenantId });
+      await replyHtml(
+        ctx,
+        [
+          '<b>Read-only initial liquidity planner</b>',
+          'Nothing will launch, sign, or move funds.',
+          '',
+          'Send these five values in order, separated by spaces:',
+          '<code>token amount  SOL amount  total supply  token decimals  SOL/USD</code>',
+          'Example: <code>10000000 132 1000000000 6 75.89</code>',
+          '',
+          'Token decimals must come from the token mint. Use /cancel if you do not know them yet.',
+        ].join('\n'),
+      );
+    }),
+  );
+
+  bot.command(
     'cancel',
     withErrors(async (ctx) => {
       const id = chatId(ctx);
@@ -410,6 +470,21 @@ export function createLpBot(token: string, service: LpShadowService): Bot {
             .catch(() => undefined);
         }
         await sendAddConfirmCard(ctx, id, state.tenantId, state.preview, amount);
+        return;
+      }
+
+      if (state.kind === 'launch-input') {
+        const input = parseLaunchInput(ctx.message?.text ?? '');
+        if (!input) {
+          await replyHtml(
+            ctx,
+            'Send exactly five positive values: token amount, SOL amount, total supply, token decimals, and SOL/USD — or use /cancel.',
+          );
+          return;
+        }
+        const report = await service.planInitialLiquidity(input);
+        pending.delete(id);
+        await replyHtml(ctx, renderInitialLiquidityPlan(report));
       }
     }),
   );

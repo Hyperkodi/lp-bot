@@ -10,6 +10,8 @@
  * so the payloads are JSON-safe if the bot ever moves out of process.
  */
 
+import type { InitialLiquidityLaunchPlan } from '../strategy/launchPlanner.js';
+
 export type TenantRef = {
   tenantId: string;
   externalUserId: string;
@@ -117,6 +119,29 @@ export type WithdrawalReceipt = {
   requestedAt: string;
 };
 
+export type InitialLiquidityPlanRequest = {
+  tokenAmount: number;
+  solAmount: number;
+  tokenSupply: number;
+  tokenDecimals: number;
+  solPriceUsd: number;
+};
+
+export type InitialLiquidityPlanningReport = {
+  status: 'READ_ONLY';
+  defaults: {
+    binStepBps: 50;
+    baseFeeBps: 30;
+    distributionShape: 'SPOT';
+    fundedBins: 69;
+    averageImpactBps: 100;
+    gasReserveSol: 0.05;
+  };
+  plan: InitialLiquidityLaunchPlan;
+  comparisons: InitialLiquidityLaunchPlan[];
+  blockers: string[];
+};
+
 export type LpShadowService = {
   redeemHandoff(token: string, telegramChatId: string): Promise<TenantRef>;
   getTenantByChatId(telegramChatId: string): Promise<TenantRef | null>;
@@ -137,6 +162,7 @@ export type LpShadowService = {
     opts?: { fromDays?: number },
   ): Promise<ReplayReport>;
   getStrategy(): Promise<StrategyInfo>;
+  planInitialLiquidity(input: InitialLiquidityPlanRequest): Promise<InitialLiquidityPlanningReport>;
 
   pausePool(tenantId: string, poolRef?: string): Promise<PoolSummary>;
   resumePool(tenantId: string, poolRef?: string): Promise<PoolSummary>;

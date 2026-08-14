@@ -178,6 +178,12 @@ devnet pool and position addresses, and maps the funded interval into
 transaction. Mint addresses, the real token decimal count, wallet addresses,
 and a fresh wallet balance are required before it can be created.
 
+The draft marks the position as `PERMANENT_INITIAL`. The execution recipe
+allows that role to open, but rejects system compounding, rebalancing, exit,
+fee settlement, and withdrawal. A withdrawal is accepted only when explicitly
+marked as founder-initiated. Legacy actively managed positions keep their
+existing behavior; later liquidity must use a separate position role.
+
 The comparison models buyer depth contributed by this initial position only.
 If buyer size is unknown, omit both buyer flags. The planner then reports the
 maximum fully filled order supported at 0.5%, 1%, 2%, and 5% modeled average

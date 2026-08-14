@@ -157,6 +157,7 @@ export function createFakeService(
     getVerdict: record('getVerdict', verdict),
     runReplay: record('runReplay', replay),
     getStrategy: record('getStrategy', strategy),
+    planInitialLiquidity: record('planInitialLiquidity', undefined as never),
     pausePool: record('pausePool', { ...FAKE_POOL, mode: 'PAUSED' as const }),
     resumePool: record('resumePool', FAKE_POOL),
     removePool: record('removePool', { ...FAKE_POOL, mode: 'STOPPED' as const }),

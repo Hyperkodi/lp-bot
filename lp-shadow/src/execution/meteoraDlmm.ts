@@ -11,6 +11,7 @@ import BN from 'bn.js';
 import { DLMM, sdkExport } from '../poller/dlmmSdk.js';
 import { classicPositionRange } from '../positionRange.js';
 import type { BuiltExecution, ChainState, ExecutionRequest } from './types.js';
+import { enforcePositionPolicy } from './initialLiquidityPolicy.js';
 
 export {
   CLASSIC_POSITION_WIDTH,
@@ -322,6 +323,7 @@ export class MeteoraDevnetRecipes {
 
   async build(request: ExecutionRequest): Promise<BuiltExecution> {
     const value = details(request);
+    enforcePositionPolicy(request.action, value);
     const wallet = publicKey(request.destinations.projectWalletAddress, 'project wallet');
     if (request.action === 'CREATE_POOL') {
       const transaction = await this.sdk.buildCreatePool({

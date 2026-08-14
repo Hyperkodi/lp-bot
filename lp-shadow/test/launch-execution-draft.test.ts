@@ -75,6 +75,8 @@ describe('unsigned launch execution draft', () => {
       distributionShape: 'SPOT',
       tokenXAmount: '10000000000000',
       tokenYAmount: '132000000000',
+      positionRole: 'PERMANENT_INITIAL',
+      initiatedBy: 'SYSTEM',
     });
   });
 

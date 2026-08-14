@@ -9,9 +9,12 @@
  */
 export { createService } from './api.js';
 export { ServiceError, type ServiceErrorCode } from './errors.js';
+export { planInitialLiquidityForLaunch } from './launchPlanning.js';
 export type {
   DecisionDetail,
   LpShadowService,
+  InitialLiquidityPlanningReport,
+  InitialLiquidityPlanRequest,
   PoolPreview,
   PoolSummary,
   ReplayReport,

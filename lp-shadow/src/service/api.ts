@@ -23,6 +23,7 @@ import { runReplayForPool } from './replay.js';
 import { getStatus, getStrategy, getVerdict, getWhy, type GoLiveCache } from './reports.js';
 import type { LpShadowService, PoolSummary } from './types.js';
 import { requestFullWithdrawal } from './withdrawals.js';
+import { planInitialLiquidityForLaunch } from './launchPlanning.js';
 
 export async function createService(): Promise<LpShadowService> {
   const env = loadEnv();
@@ -70,6 +71,7 @@ export async function createService(): Promise<LpShadowService> {
         opts,
       ),
     getStrategy: () => getStrategy(prisma),
+    planInitialLiquidity: async (input) => planInitialLiquidityForLaunch(input),
 
     pausePool: async (tenantId, poolRef) =>
       transitionMode(prisma, await resolvePoolRow(prisma, tenantId, poolRef), 'pause'),

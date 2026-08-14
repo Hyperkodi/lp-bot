@@ -1,4 +1,5 @@
 import type {
+  InitialLiquidityPlanningReport,
   PoolPreview,
   PoolSummary,
   ReplayReport,
@@ -18,6 +19,10 @@ const moneyFormatter = new Intl.NumberFormat('en-US', {
 
 const numberFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 4,
+});
+
+const priceFormatter = new Intl.NumberFormat('en-US', {
+  maximumSignificantDigits: 12,
 });
 
 export function escapeHtml(value: string): string {
@@ -178,6 +183,40 @@ export function renderAddConfirmation(preview: PoolPreview, virtualNavUsd: numbe
     `Pool: ${escapeHtml(preview.name ?? preview.poolAddress.slice(0, 8))}`,
     `Size: ${escapeHtml(formatMoney(virtualNavUsd))}`,
   ].join('\n');
+}
+
+export function renderInitialLiquidityPlan(report: InitialLiquidityPlanningReport): string {
+  const plan = report.plan;
+  const onePercent = plan.buyer.averageImpactCapacity.find(
+    (point) => point.maxAverageImpactBps === 100,
+  );
+  const capacityRows = plan.buyer.averageImpactCapacity.map((point) => [
+    `${numberFormatter.format(point.maxAverageImpactBps / 100)}%`,
+    `${numberFormatter.format(point.maxOrderSol)} SOL`,
+    point.maxOrderUsd === null ? 'Unavailable' : formatMoney(point.maxOrderUsd),
+  ]);
+  return [
+    '<b>Initial liquidity plan — read only</b>',
+    'This is a planning result, not a launch or transaction.',
+    '',
+    `Deposit: ${escapeHtml(numberFormatter.format(plan.deposit.tokenAmount))} tokens + ${escapeHtml(numberFormatter.format(plan.deposit.positionSolAmount))} SOL`,
+    `Opening price: ${escapeHtml(priceFormatter.format(plan.price.representedPriceSolPerToken))} SOL/token`,
+    `Represented FDV: ${escapeHtml(formatOptionalMoney(plan.price.representedFdvUsd))}`,
+    `Default recipe: ${escapeHtml(plan.distributionShape)} / ${escapeHtml(String(plan.fundedRange.totalBins))} funded bins`,
+    `Price coverage: -${escapeHtml(numberFormatter.format(plan.fundedRange.downsidePct * 100))}% / +${escapeHtml(numberFormatter.format(plan.fundedRange.upsidePct * 100))}%`,
+    `Known SDK account rent: ${escapeHtml(numberFormatter.format(plan.creationCost.knownRequiredAccountRentSol))} SOL`,
+    `Known wallet minimum: ${escapeHtml(numberFormatter.format(plan.creationCost.minimumWalletSolWithKnownAccountRent))} SOL + unresolved preflight costs`,
+    onePercent
+      ? `Modeled order capacity at 1% average impact: ${escapeHtml(numberFormatter.format(onePercent.maxOrderSol))} SOL (${escapeHtml(formatOptionalMoney(onePercent.maxOrderUsd))})`
+      : '',
+    '',
+    '<b>Buyer capacity from this position only</b>',
+    `<pre>${escapeHtml(plainTable(['Avg impact', 'Order', 'USD'], capacityRows))}</pre>`,
+    '<b>Still required</b>',
+    ...report.blockers.map((blocker) => `• ${escapeHtml(blocker)}`),
+    '',
+    'The initial position is marked permanent: the bot will not compound, rebalance, exit, or withdraw it. Founder withdrawal remains available.',
+  ].filter((line) => line !== '').join('\n');
 }
 
 export function renderPools(pools: PoolSummary[]): string {

@@ -87,6 +87,8 @@ type LpShadowService = {
   /** Window defaults to the last 30 days; pass fromDays to widen or narrow. */
   runReplay(tenantId: string, poolRef?: string, opts?: { fromDays?: number }): Promise<ReplayReport>;
   getStrategy(): Promise<StrategyInfo>;
+  /** Read-only initial-liquidity planning; never builds or sends a transaction. */
+  planInitialLiquidity(input: InitialLiquidityPlanRequest): Promise<InitialLiquidityPlanningReport>;
 
   pausePool(tenantId: string, poolRef?: string): Promise<PoolSummary>;   // SHADOW -> PAUSED
   resumePool(tenantId: string, poolRef?: string): Promise<PoolSummary>;  // PAUSED -> SHADOW
@@ -173,6 +175,7 @@ Register all commands with `setMyCommands` at boot so Telegram shows the menu.
 | `/start <token>` | `redeemHandoff(token, chatId)`; on success send the welcome (§5). No token: if `getTenantByChatId` finds a tenant, send the returning-user greeting; otherwise send the not-registered copy. |
 | `/help` | List commands with one-line descriptions, restate the keyless guarantee. |
 | `/add <address>` | `previewPool`; render preview (name, TVL, 24h vol, 24h fees, bin step); ask "How much would you actually deploy, in USD?"; the next plain number message from that chat completes it; then an inline-keyboard confirm (Shadow it / Cancel) calls `addPool` with `label = preview.name ?? address.slice(0, 8)`. |
+| `/launchplan` | Prompt for token amount, SOL amount, total supply, verified token decimals, and SOL/USD. Render the read-only 69-bin Spot planning default, cost estimate, buyer-capacity curve, and remaining blockers. Explicitly say that nothing launches, signs, or moves funds. |
 | `/pools` | `listPools`; table of label, mode, size, days of data. Empty: point at `/add`. |
 | `/status [pool]` | `getStatus`; send `html` as-is. |
 | `/why [pool]` | `getWhy`; render §5 layout from the structured fields. |
@@ -187,7 +190,7 @@ Every command except `/start` and `/help` first resolves the tenant via
 raw remainder of the message text, passed to the service verbatim (trimmed);
 the service does the matching.
 
-**Conversation state** (the pending `/add` size question and pending
+**Conversation state** (the pending `/add` size question, `/launchplan` input, and pending
 confirmations) may live in an in-memory `Map<chatId, PendingState>` — this is
 v1, a restart may drop a pending prompt mid-flow and that is acceptable. A
 fresh `/add` or `/cancel` clears the chat's pending state.
@@ -243,6 +246,14 @@ Reasons strings, labels, and `VerdictReport.lines` are plain text.
 - No webhooks, no HTTP server, no database migrations, no new dependencies,
   no changes outside `src/bot/`, no edits to the service layer — if the
   contract seems wrong, stop and flag it instead of patching around it.
+
+### Initial-liquidity planning extension
+
+`/launchplan` is the only launch-related command. It is read-only and cannot
+confirm or execute a launch. For this extension, pure planning additions to the
+service contract are in scope; signing, sending, webhooks, HTTP endpoints,
+database migrations, and new dependencies remain out of scope. This extension
+supersedes the older bot-only boundary above only for the pure planning method.
 
 ## 8. Acceptance
 

@@ -8,6 +8,7 @@ import {
   deriveMeteoraPositionAddress,
 } from '../execution/meteoraDlmm.js';
 import type { ExecutionRequest } from '../execution/types.js';
+import { PERMANENT_INITIAL_POSITION_ROLE } from '../execution/initialLiquidityPolicy.js';
 import type { InitialLiquidityLaunchPlan } from './launchPlanner.js';
 
 export type LaunchExecutionDraftInput = {
@@ -181,6 +182,8 @@ export function draftLaunchExecution(input: LaunchExecutionDraftInput): LaunchEx
       walletSolLamports: walletSolLamports.toString(),
       nativeSolLamports: tokenYAmount.toString(),
       gasReserveLamports: gasReserveLamports.toString(),
+      positionRole: PERMANENT_INITIAL_POSITION_ROLE,
+      initiatedBy: 'SYSTEM',
     },
   };
   return {
