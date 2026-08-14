@@ -40,6 +40,14 @@ Commits: `85c3f19`, fee invariant in `2321627`.
 - Added a per-bin buyer simulation with 1%-impact depth, fill rate, and average
   slippage for a fixed 10%-of-NAV order. It measures strategy-owned liquidity,
   not the complete pool or routed execution.
+- Added a strict, chunked Meteora OHLCV reader and a historical lab over 5,160
+  five-minute candles from six fixed SOL-quoted launches, split three training
+  and three holdout. Current Jupiter quotes check exact AMM addresses rather
+  than trusting route labels.
+- The first holdout result kept the earlier direction but did not approve a
+  profile: average net versus HODL was -$3,166 for Fee Maximizer, -$2,147 for
+  Market Depth, and -$217 for Treasury Defensive. Full assumptions and pool
+  addresses are in `lp-shadow/docs/HISTORICAL_STRATEGY_LAB.md`.
 - Wired the concrete Meteora recipe to the selected distribution shape; it no
   longer always sends Spot.
 - The initial synthetic report is recorded in
@@ -139,7 +147,7 @@ Commit: `7ac7cdb`.
 
 - `pnpm typecheck`: pass.
 - `pnpm lint`: pass.
-- `pnpm test`: 284 pass, 0 skipped when run with a fully migrated local scratch Postgres at
+- `pnpm test`: 291 pass, 0 skipped when run with a fully migrated local scratch Postgres at
   `127.0.0.1:55432`; every database suite deletes every table it touches.
 - `pnpm e2e:devnet`: pass against Solana devnet. All five execution intents
   reconciled, every recorded execution outcome finalized, and the final
@@ -181,8 +189,9 @@ Commit: `7ac7cdb`.
   50 SOL per-project/day, and 250 SOL global/day caps after Ryan approves an
   operating policy.
 - `TODO(profile-replay)`: tune all three profile parameter sets and the 24-hour
-  launch guard from historical replay/live shadow evidence. The deterministic
-  stress lab is implemented but is not historical evidence.
+  launch guard from broader historical replay/live shadow evidence. A six-pool
+  training/holdout lab now exists, but unavailable historical liquidity and fee
+  inputs remain explicit proxies and the sample is not approval evidence.
 - Validate Treasury Defensive's provisional 15% quote exposure against a
   one-sided ask alternative using training and holdout launch data. The reserve
   model exists, but synthetic data cannot choose a production value.

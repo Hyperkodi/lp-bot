@@ -55,13 +55,14 @@ export type QuoteResult = {
   /** Fraction, e.g. 0.0042 for 0.42%. */
   priceImpactPct: number | null;
   routeLabels: string[];
+  routeAmmKeys: string[];
 };
 
 type QuoteResponse = {
   inAmount: string;
   outAmount: string;
   priceImpactPct?: string;
-  routePlan?: { swapInfo?: { label?: string } }[];
+  routePlan?: { swapInfo?: { label?: string; ammKey?: string } }[];
 };
 
 /**
@@ -111,5 +112,6 @@ export async function fetchQuote(args: {
     outAmount,
     priceImpactPct: Number.isFinite(impact) ? impact : null,
     routeLabels: (body.routePlan ?? []).map((step) => step.swapInfo?.label ?? '?'),
+    routeAmmKeys: (body.routePlan ?? []).map((step) => step.swapInfo?.ammKey ?? '?'),
   };
 }

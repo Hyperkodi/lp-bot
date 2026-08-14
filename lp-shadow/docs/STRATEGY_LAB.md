@@ -87,3 +87,9 @@ roughly 30% of its post-launch price, and volatile chop.
 
 Until those gaps close, the three numeric profile definitions remain initial
 configuration under `TODO(profile-replay)`.
+
+The first historical training/holdout run is now implemented and documented in
+[`HISTORICAL_STRATEGY_LAB.md`](./HISTORICAL_STRATEGY_LAB.md). It narrows the
+uncertainty but does not close the gaps: the sample has only six launches and
+historical TVL, per-bin liquidity, dynamic fees, and Jupiter routes remain
+unavailable.

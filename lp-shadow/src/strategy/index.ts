@@ -24,3 +24,8 @@ export {
   type ProfileVariant,
   type StrategyScenario,
 } from './lab.js';
+export {
+  historicalScenarioFromOhlcv,
+  type HistoricalProxyAssumptions,
+  type HistoricalScenario,
+} from './historical.js';

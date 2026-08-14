@@ -32,7 +32,7 @@ describe('fetchQuote', () => {
       inAmount: '1000000000',
       outAmount: '33300000',
       priceImpactPct: '0.0006',
-      routePlan: [{ swapInfo: { label: 'Meteora DLMM' } }],
+      routePlan: [{ swapInfo: { label: 'Meteora DLMM', ammKey: 'pool-address' } }],
     });
 
     const quote = await fetchQuote(args);
@@ -41,6 +41,7 @@ describe('fetchQuote', () => {
     expect(quote.outAmount).toBe(33_300_000);
     expect(quote.priceImpactPct).toBeCloseTo(0.0006);
     expect(quote.routeLabels).toEqual(['Meteora DLMM']);
+    expect(quote.routeAmmKeys).toEqual(['pool-address']);
   });
 
   it('still succeeds when only the price impact is unusable', async () => {
