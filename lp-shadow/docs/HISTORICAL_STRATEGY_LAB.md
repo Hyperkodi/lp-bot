@@ -123,19 +123,48 @@ Historical TVL, per-bin liquidity, dynamic fees, and executable Jupiter routes
 remain unavailable. Fee and depth dollars are directional model outputs, not
 audited execution results.
 
-## Information needed for a real launch recommendation
+## Turn real launch inputs into a concrete plan
 
-The next pass should replace the normalized $10,000 injection with the team's
-actual launch constraints:
+The read-only launch planner replaces the normalized $10,000 injection with
+the team's actual launch constraints. It does not connect to a wallet, build a
+transaction, sign, or send anything.
+
+From the `lp-shadow` directory, run this example with the placeholder numbers
+replaced by the real launch values:
+
+```powershell
+pnpm strategy:plan -- --token 1000000 --sol 10 --supply 100000000 --sol-price 200 --buyer-usd 1000 --impact-bps 100 --bin-step 25 --fee-bps 30
+```
+
+The inputs mean:
 
 1. launched-token quantity allocated to initial liquidity;
 2. SOL allocated at pool creation;
-3. intended opening price or FDV;
-4. largest buyer order that should clear near launch;
-5. acceptable price impact for that order;
-6. desired opening price range and chosen pool bin step/base fee.
+3. total token supply, used to calculate implied FDV;
+4. current SOL/USD display price (entered explicitly; the command does not
+   fetch a live price);
+5. largest buyer order that should clear near launch;
+6. acceptable modeled price impact for that order (`100` bps is 1%);
+7. chosen pool bin step and base fee.
 
-Those inputs will let the lab turn the four tradeoff families into concrete
-token amounts, SOL amounts, and bin ranges. Rules for adding liquidity later
-should then be evaluated independently without weakening the permanent initial
-position.
+With no shape or width specified, the command compares Spot, Curve, and BidAsk
+at 15, 31, 51, and 69 funded bins. Every row uses the exact same token and SOL
+deposit. To inspect one recipe in detail, add both flags:
+
+```powershell
+pnpm strategy:plan -- --token 1000000 --sol 10 --supply 100000000 --sol-price 200 --buyer-usd 1000 --impact-bps 100 --bin-step 25 --fee-bps 30 --shape CURVE --bins 15
+```
+
+The detailed plan reports the 70-bin Meteora position-account interval and the
+smaller funded interval inside it. The team-supplied token/SOL ratio defines
+the opening price, so changing either launch amount also changes the implied
+price and FDV. `--gas-reserve` defaults to 0.05 SOL and is reported as wallet
+funding outside the position.
+
+The comparison models buyer depth contributed by this initial position only.
+It excludes other LPs, routing, dynamic fees, and market reaction, so it is a
+planning aid rather than an executable quote or a production winner. Rules for
+adding liquidity later remain a separate policy and do not weaken the
+permanent initial position. "Permanent" means the bot never autonomously pulls
+this liquidity; the founder's explicit withdrawal remains available at all
+times.

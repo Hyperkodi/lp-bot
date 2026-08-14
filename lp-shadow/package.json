@@ -19,6 +19,7 @@
     "strategy:lab": "tsx scripts/strategy-lab.ts",
     "strategy:historical": "tsx scripts/historical-strategy-lab.ts",
     "strategy:initial": "tsx scripts/historical-strategy-lab.ts",
+    "strategy:plan": "tsx scripts/initial-liquidity-plan.ts",
     "report": "tsx src/report/run.ts",
     "test": "vitest run",
     "test:watch": "vitest",

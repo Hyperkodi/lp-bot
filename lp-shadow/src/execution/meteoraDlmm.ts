@@ -9,20 +9,11 @@ import {
 } from '@solana/web3.js';
 import BN from 'bn.js';
 import { DLMM, sdkExport } from '../poller/dlmmSdk.js';
+import { classicPositionRange } from '../positionRange.js';
 import type { BuiltExecution, ChainState, ExecutionRequest } from './types.js';
 
-export const CLASSIC_POSITION_WIDTH = 70;
+export { CLASSIC_POSITION_WIDTH, classicPositionRange } from '../positionRange.js';
 export const GAS_RESERVE_LAMPORTS = 50_000_000n;
-
-export function classicPositionRange(activeBinId: number) {
-  if (!Number.isSafeInteger(activeBinId)) throw new Error('active bin id must be a safe integer');
-  const lowerBinId = activeBinId - Math.floor(CLASSIC_POSITION_WIDTH / 2);
-  return {
-    lowerBinId,
-    upperBinId: lowerBinId + CLASSIC_POSITION_WIDTH - 1,
-    width: CLASSIC_POSITION_WIDTH,
-  };
-}
 
 export function assertGasReserve(
   walletSolLamports: bigint,
