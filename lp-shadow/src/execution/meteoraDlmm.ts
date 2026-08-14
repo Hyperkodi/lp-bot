@@ -12,7 +12,11 @@ import { DLMM, sdkExport } from '../poller/dlmmSdk.js';
 import { classicPositionRange } from '../positionRange.js';
 import type { BuiltExecution, ChainState, ExecutionRequest } from './types.js';
 
-export { CLASSIC_POSITION_WIDTH, classicPositionRange } from '../positionRange.js';
+export {
+  CLASSIC_POSITION_WIDTH,
+  centeredFundedRange,
+  classicPositionRange,
+} from '../positionRange.js';
 export const GAS_RESERVE_LAMPORTS = 50_000_000n;
 
 export function assertGasReserve(
@@ -369,6 +373,23 @@ export class MeteoraDevnetRecipes {
       ? activeBin.binId
       : integer(value.centerBinId, 'centerBinId', -443_636);
     const range = classicPositionRange(centerBinId);
+    const hasFundedLower = value.fundedLowerBinId !== undefined;
+    const hasFundedUpper = value.fundedUpperBinId !== undefined;
+    if (hasFundedLower !== hasFundedUpper) {
+      throw new Error('fundedLowerBinId and fundedUpperBinId must be provided together');
+    }
+    const fundedLowerBinId = hasFundedLower
+      ? integer(value.fundedLowerBinId, 'fundedLowerBinId', -443_636)
+      : range.lowerBinId;
+    const fundedUpperBinId = hasFundedUpper
+      ? integer(value.fundedUpperBinId, 'fundedUpperBinId', -443_636)
+      : range.upperBinId;
+    if (fundedLowerBinId > fundedUpperBinId) {
+      throw new Error('funded lower bin must not exceed funded upper bin');
+    }
+    if (fundedLowerBinId < range.lowerBinId || fundedUpperBinId > range.upperBinId) {
+      throw new Error('funded range must stay inside the 70-bin position account');
+    }
     const lower = new BN(range.lowerBinId);
     const width = new BN(range.width);
     const positionAddress = this.sdk.derivePositionAddress(poolAddress, wallet, lower, width);
@@ -385,8 +406,8 @@ export class MeteoraDevnetRecipes {
       totalXAmount: asBn(value.tokenXAmount, 'tokenXAmount'),
       totalYAmount: asBn(value.tokenYAmount, 'tokenYAmount'),
       strategy: {
-        minBinId: range.lowerBinId,
-        maxBinId: range.upperBinId,
+        minBinId: fundedLowerBinId,
+        maxBinId: fundedUpperBinId,
         strategyType: distributionStrategyType(value.distributionShape),
       },
       user: wallet,

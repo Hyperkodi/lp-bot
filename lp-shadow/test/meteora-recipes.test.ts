@@ -4,6 +4,7 @@ import {
   GAS_RESERVE_LAMPORTS,
   MeteoraDevnetRecipes,
   assertGasReserve,
+  centeredFundedRange,
   classicPositionRange,
   type MeteoraPoolFacade,
   type MeteoraSdkFacade,
@@ -86,6 +87,11 @@ class FakeSdk implements MeteoraSdkFacade {
 describe('Meteora devnet recipes', () => {
   it('centres an exact 70-bin classic position', () => {
     expect(classicPositionRange(100)).toEqual({ lowerBinId: 65, upperBinId: 134, width: 70 });
+    expect(centeredFundedRange(100, 69)).toEqual({
+      lowerBinId: 66,
+      upperBinId: 134,
+      totalBins: 69,
+    });
   });
 
   it('keeps the gas reserve out of position sizing', () => {
@@ -147,6 +153,57 @@ describe('Meteora devnet recipes', () => {
     const add = sdk.pool.calls.find((call) => call.method === 'add')?.value;
     expect(add).toMatchObject({ positionPubKey: positionAddress, user: wallet });
     expect(add?.strategy).toMatchObject({ minBinId: 65, maxBinId: 134, strategyType: 1 });
+  });
+
+  it('funds the planner-selected subset inside the 70-bin position account', async () => {
+    const sdk = new FakeSdk();
+    const recipes = new MeteoraDevnetRecipes(sdk);
+    await recipes.build(
+      request('OPEN_POSITION', {
+        poolAddress: poolAddress.toBase58(),
+        centerBinId: 100,
+        fundedLowerBinId: 66,
+        fundedUpperBinId: 134,
+        distributionShape: 'SPOT',
+        tokenXAmount: '1000',
+        tokenYAmount: '2000',
+        walletSolLamports: '1000000000',
+        nativeSolLamports: '900000000',
+      }),
+    );
+
+    const initialize = sdk.pool.calls.find((call) => call.method === 'initialize')?.value;
+    expect(String(initialize?.lowerBinId)).toBe('65');
+    expect(String(initialize?.positionWidth)).toBe('70');
+    const add = sdk.pool.calls.find((call) => call.method === 'add')?.value;
+    expect(add?.strategy).toMatchObject({ minBinId: 66, maxBinId: 134, strategyType: 0 });
+  });
+
+  it('rejects incomplete or out-of-account funded intervals', async () => {
+    const details = {
+      poolAddress: poolAddress.toBase58(),
+      centerBinId: 100,
+      distributionShape: 'SPOT',
+      tokenXAmount: '1000',
+      tokenYAmount: '2000',
+      walletSolLamports: '1000000000',
+      nativeSolLamports: '900000000',
+    };
+
+    await expect(
+      new MeteoraDevnetRecipes(new FakeSdk()).build(
+        request('OPEN_POSITION', { ...details, fundedLowerBinId: 66 }),
+      ),
+    ).rejects.toThrow(/provided together/i);
+    await expect(
+      new MeteoraDevnetRecipes(new FakeSdk()).build(
+        request('OPEN_POSITION', {
+          ...details,
+          fundedLowerBinId: 64,
+          fundedUpperBinId: 134,
+        }),
+      ),
+    ).rejects.toThrow(/inside the 70-bin position/i);
   });
 
   it('maps the founder-facing distribution names to Meteora strategy types', async () => {

@@ -29,6 +29,7 @@ export {
   MeteoraDevnetRecipes,
   RealMeteoraSdkFacade,
   assertGasReserve,
+  centeredFundedRange,
   classicPositionRange,
   createMeteoraDevnetRecipes,
   deriveMeteoraPoolProgramAccounts,

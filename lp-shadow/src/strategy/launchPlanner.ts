@@ -1,7 +1,11 @@
 import { binPrice } from '../binMath.js';
 import { prepareInitialPrice } from '../pool/initialPrice.js';
 import { planMeteoraBinPrice, type MeteoraPriceRoundingDirection } from '../pool/meteoraPrice.js';
-import { CLASSIC_POSITION_WIDTH, classicPositionRange } from '../positionRange.js';
+import {
+  CLASSIC_POSITION_WIDTH,
+  centeredFundedRange,
+  classicPositionRange,
+} from '../positionRange.js';
 import type { DistributionShape, PoolSnapshot } from '../types.js';
 import {
   buyDepthWithinPriceImpact,
@@ -169,11 +173,9 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
   };
   const activeBinId = price.activeBinId;
   const positionAccount = classicPositionRange(activeBinId);
-  const fundedLower = activeBinId - Math.floor(input.totalBins / 2);
-  const fundedUpper = fundedLower + input.totalBins - 1;
-  if (fundedLower < positionAccount.lowerBinId || fundedUpper > positionAccount.upperBinId) {
-    throw new Error('funded range must stay inside the 70-bin classic position');
-  }
+  const fundedRange = centeredFundedRange(activeBinId, input.totalBins);
+  const fundedLower = fundedRange.lowerBinId;
+  const fundedUpper = fundedRange.upperBinId;
 
   const lowerPrice = binPrice(
     fundedLower,
