@@ -117,7 +117,19 @@ describe('unsigned launch execution draft', () => {
       walletSolAmount: '133',
       tokenDecimals: 6,
       idempotencyPrefix: 'standard-draft-1',
-      poolCreation: { mode: 'STANDARD', presetParameter },
+      poolCreation: {
+        mode: 'STANDARD',
+        preset: {
+          address: presetParameter,
+          binStepBps: 50,
+          baseFeeBps: '30',
+          baseFactor: 6_000,
+          baseFeePowerFactor: 0,
+          concreteFunctionType: 'LIQUIDITY_MINING',
+          collectFeeMode: 'INPUT_ONLY',
+          source: 'DEVNET_ON_CHAIN_PRESET_PARAMETER_2',
+        },
+      },
     });
 
     expect(draft.poolType).toBe('STANDARD');
@@ -127,5 +139,61 @@ describe('unsigned launch execution draft', () => {
       presetParameter,
       poolAddress: draft.poolAddress,
     });
+  });
+
+  it('rejects a Standard preset whose reviewed economics or mode do not match', () => {
+    expect(() => draftLaunchExecution({
+      plan: plan(),
+      projectWalletId: 'wallet-1',
+      projectWalletAddress: address(1),
+      founderWithdrawalAddress: address(2),
+      feeTreasuryAddress: address(3),
+      projectTokenMint: address(4),
+      projectTokenAmount: '10000000',
+      solAmount: '132',
+      walletSolAmount: '133',
+      tokenDecimals: 6,
+      idempotencyPrefix: 'standard-draft-mismatch',
+      poolCreation: {
+        mode: 'STANDARD',
+        preset: {
+          address: address(9),
+          binStepBps: 10,
+          baseFeeBps: '1000',
+          baseFactor: 100_000,
+          baseFeePowerFactor: 0,
+          concreteFunctionType: 'LIQUIDITY_MINING',
+          collectFeeMode: 'INPUT_ONLY',
+          source: 'DEVNET_ON_CHAIN_PRESET_PARAMETER_2',
+        },
+      },
+    })).toThrow(/does not match/i);
+  });
+
+  it('rejects a mismatched decimal count, wrapped SOL mint, and unsupported token program', () => {
+    const base = {
+      plan: plan(),
+      projectWalletId: 'wallet-1',
+      projectWalletAddress: address(1),
+      founderWithdrawalAddress: address(2),
+      feeTreasuryAddress: address(3),
+      projectTokenMint: address(4),
+      projectTokenAmount: '10000000',
+      solAmount: '132',
+      walletSolAmount: '133',
+      tokenDecimals: 6,
+      idempotencyPrefix: 'invalid-draft',
+      poolCreation: { mode: 'DEVNET_CUSTOMIZABLE_PROXY' as const },
+    };
+
+    expect(() => draftLaunchExecution({ ...base, tokenDecimals: 9 })).toThrow(/decimals/i);
+    expect(() => draftLaunchExecution({
+      ...base,
+      projectTokenMint: 'So11111111111111111111111111111111111111112',
+    })).toThrow(/different from wrapped SOL/i);
+    expect(() => draftLaunchExecution({
+      ...base,
+      projectTokenProgramId: address(8),
+    })).toThrow(/SPL Token or Token-2022/i);
   });
 });

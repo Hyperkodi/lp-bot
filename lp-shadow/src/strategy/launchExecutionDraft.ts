@@ -1,4 +1,9 @@
-import { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import {
+  getAssociatedTokenAddressSync,
+  NATIVE_MINT,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from '@solana/spl-token';
 import { PublicKey } from '@solana/web3.js';
 import BN from 'bn.js';
 import Decimal from 'decimal.js';
@@ -10,6 +15,10 @@ import {
 } from '../execution/meteoraDlmm.js';
 import type { ExecutionRequest } from '../execution/types.js';
 import { PERMANENT_INITIAL_POSITION_ROLE } from '../execution/initialLiquidityPolicy.js';
+import {
+  presetMatchesRequirement,
+  type VerifiedStandardPoolPreset,
+} from '../execution/standardPoolPreset.js';
 import type { InitialLiquidityLaunchPlan } from './launchPlanner.js';
 
 export type LaunchExecutionDraftInput = {
@@ -27,7 +36,7 @@ export type LaunchExecutionDraftInput = {
   idempotencyPrefix: string;
   poolCreation:
     | { mode: 'DEVNET_CUSTOMIZABLE_PROXY' }
-    | { mode: 'STANDARD'; presetParameter: string };
+    | { mode: 'STANDARD'; preset: VerifiedStandardPoolPreset };
 };
 
 export type LaunchExecutionDraft = {
@@ -100,9 +109,18 @@ export function draftLaunchExecution(input: LaunchExecutionDraftInput): LaunchEx
   const founderWithdrawal = publicKey(input.founderWithdrawalAddress, 'founder withdrawal address');
   const feeTreasury = publicKey(input.feeTreasuryAddress, 'fee treasury address');
   const projectToken = publicKey(input.projectTokenMint, 'project token mint');
+  if (projectToken.equals(NATIVE_MINT)) {
+    throw new Error('project token mint must be different from wrapped SOL');
+  }
   const projectTokenProgram = input.projectTokenProgramId
     ? publicKey(input.projectTokenProgramId, 'project token program')
     : TOKEN_PROGRAM_ID;
+  if (!projectTokenProgram.equals(TOKEN_PROGRAM_ID) && !projectTokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+    throw new Error('project token program must be the SPL Token or Token-2022 program');
+  }
+  if (input.tokenDecimals !== input.plan.pool.tokenDecimals) {
+    throw new Error('token decimals do not match the reviewed launch plan');
+  }
   const tokenXAmount = toAtomicAmount(input.projectTokenAmount, input.tokenDecimals, 'project token amount');
   const tokenYAmount = toAtomicAmount(input.solAmount, 9, 'SOL amount');
   const walletSolLamports = toAtomicAmount(input.walletSolAmount, 9, 'wallet SOL amount');
@@ -119,8 +137,18 @@ export function draftLaunchExecution(input: LaunchExecutionDraftInput): LaunchEx
 
   // The reviewed price is SOL per project token, so the mint roles are fixed.
   // Swapping these roles would invert every active-bin and range calculation.
+  if (input.poolCreation.mode === 'STANDARD' && !presetMatchesRequirement(input.poolCreation.preset, {
+    binStepBps: input.plan.pool.binStepBps,
+    baseFeeBps: input.plan.pool.baseFeeBps,
+    concreteFunctionType: 'LIQUIDITY_MINING',
+    collectFeeMode: 'INPUT_ONLY',
+  })) {
+    throw new Error(
+      'verified Standard-pool preset does not match the reviewed bin step, fee, liquidity-mining function, and input-only fee mode',
+    );
+  }
   const presetParameter = input.poolCreation.mode === 'STANDARD'
-    ? publicKey(input.poolCreation.presetParameter, 'standard pool preset parameter')
+    ? publicKey(input.poolCreation.preset.address, 'standard pool preset parameter')
     : null;
   const poolAddress = presetParameter
     ? deriveStandardPoolAddress(presetParameter, projectToken, NATIVE_MINT)

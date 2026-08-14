@@ -215,3 +215,16 @@ adding liquidity later remain a separate policy and do not weaken the
 permanent initial position. "Permanent" means the bot never autonomously pulls
 this liquidity; the founder's explicit withdrawal remains available at all
 times.
+
+### Standard-pool preset verification
+
+The reviewed dual-sided Standard-pool route cannot accept arbitrary settings:
+the target cluster must expose a matching on-chain `PresetParameter2`. Run
+`pnpm devnet:presets` for read-only public-devnet discovery. The command has no
+keypair, transaction, signer, or send path and reports whether the provisional
+50 bps bin step, 30 bps base fee, liquidity-mining function, input-only
+fee-mode combination exists.
+
+An unsigned Standard-pool execution draft must carry the discovered preset
+metadata, not only an address. Drafting fails closed if its bin step, base fee,
+function type, or fee-collection mode differs from the reviewed plan.

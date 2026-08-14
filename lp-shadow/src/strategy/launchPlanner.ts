@@ -82,7 +82,7 @@ export type InitialLiquidityLaunchPlan = {
     knownRequiredAccountRentUsd: number | null;
     minimumWalletSolWithKnownAccountRent: number;
   };
-  pool: { binStepBps: number; baseFeeBps: number };
+  pool: { binStepBps: number; baseFeeBps: number; tokenDecimals: number };
   buyer: {
     requestedSol: number;
     requestedUsd: number | null;
@@ -316,7 +316,11 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
       minimumWalletSolWithKnownAccountRent:
         input.solAmount + input.gasReserveSol + cost.knownRequiredAccountRentSol,
     },
-    pool: { binStepBps: input.binStepBps, baseFeeBps: input.baseFeeBps },
+    pool: {
+      binStepBps: input.binStepBps,
+      baseFeeBps: input.baseFeeBps,
+      tokenDecimals: input.tokenDecimals,
+    },
     buyer: {
       requestedSol: input.buyerOrderSol,
       requestedUsd: usd(input.buyerOrderSol, input.solPriceUsd),
