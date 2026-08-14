@@ -3,21 +3,14 @@ import { loadRawConfig, toParams } from '../src/config.js';
 import { fetchPoolOhlcvRange, fetchPoolStats, type PoolStats } from '../src/poller/meteoraApi.js';
 import { BINS_PER_CLASSIC_POSITION } from '../src/poller/sdkConstants.js';
 import {
-  evaluateProfiles,
-  evaluateTreasuryCandidate,
+  evaluateInitialLiquidityCandidate,
   fillOhlcvGaps,
   historicalScenarioFromOhlcv,
-  lockTreasuryCandidate,
-  lockPolicyCandidate,
-  rankPolicyCandidates,
-  runPolicyCandidate,
-  evaluatePolicyCandidate,
-  type ExperimentalPolicyScore,
-  type ExperimentalPolicyScenarioResult,
-  type ExperimentalPolicyCandidate,
-  type ProfileScenarioResult,
+  initialLiquidityCandidates,
+  runInitialLiquidityCandidate,
+  selectInitialLiquidityOptions,
+  type InitialLiquidityScore,
   type StrategyScenario,
-  type TreasuryCandidateScore,
 } from '../src/strategy/index.js';
 import {
   HISTORICAL_LAUNCHES,
@@ -31,6 +24,8 @@ type LoadedLaunch = HistoricalLaunch & {
   candles: Awaited<ReturnType<typeof fetchPoolOhlcvRange>>;
   observedCandles: number;
 };
+
+type Objective = 'capital' | 'fees' | 'buyerDepth' | 'durability';
 
 function requireMetadata(stats: PoolStats, launch: HistoricalLaunch) {
   if (!stats.binStepBps || stats.baseFeePct === undefined) {
@@ -63,106 +58,41 @@ function printTable<T>(columns: [string, (row: T) => string][], rows: T[]) {
   for (const row of rows) process.stdout.write(`${line(columns.map(([, render]) => render(row)))}\n`);
 }
 
-function printReplay(rows: ProfileScenarioResult[], loaded: LoadedLaunch[]) {
-  const launchByName = new Map(loaded.map((launch) => [launch.name, launch]));
+function printOptions(rows: { objective: Objective; training: InitialLiquidityScore; holdout: InitialLiquidityScore }[]) {
+  process.stdout.write('\nTraining-selected permanent initial-liquidity options and locked holdout results:\n');
   printTable([
-    ['cohort', (row) => launchByName.get(row.scenario)?.cohort ?? '?'],
-    ['stratum', (row) => launchByName.get(row.scenario)?.stratum ?? '?'],
-    ['launch', (row) => row.scenario],
-    ['profile', (row) => row.profileSlug],
-    ['net/HODL', (row) => row.replay.netVsHodlUsd.toFixed(0)],
-    ['max DD', (row) => `${(row.replay.maxDrawdownPct * 100).toFixed(1)}%`],
-    ['fees*', (row) => row.replay.totalFeesUsd.toFixed(0)],
-    ['rebal', (row) => String(row.replay.rebalances)],
-    ['reserve', (row) => `${(row.replay.finalReserveSharePct * 100).toFixed(1)}%`],
+    ['objective', (row) => row.objective],
+    ['shape', (row) => row.training.candidate.distributionShape],
+    ['inventory', (row) => row.training.candidate.inventory],
+    ['bins', (row) => String(row.training.candidate.totalBins)],
+    ['train median', (row) => row.training.medianNetVsHodlUsd.toFixed(0)],
+    ['hold median', (row) => row.holdout.medianNetVsHodlUsd.toFixed(0)],
+    ['hold average', (row) => row.holdout.averageNetVsHodlUsd.toFixed(0)],
+    ['hold worst', (row) => row.holdout.worstNetVsHodlUsd.toFixed(0)],
+    ['hold fees', (row) => row.holdout.averageFeesUsd.toFixed(0)],
+    ['in range', (row) => `${(row.holdout.averageTimeInRange * 100).toFixed(1)}%`],
+    ['launch depth', (row) => row.holdout.averageInitialBuyerDepth1PctUsd.toFixed(0)],
+    ['launch fill', (row) => `${(row.holdout.averageInitialBuyerFillRate * 100).toFixed(1)}%`],
+    ['72h depth', (row) => row.holdout.averageBuyerDepth1PctUsd.toFixed(0)],
+    ['max DD', (row) => `${(row.holdout.averageMaxDrawdownPct * 100).toFixed(1)}%`],
   ], rows);
+}
 
-  process.stdout.write('\nCohort averages for the unchanged built-in profiles:\n');
-  for (const cohort of ['TRAINING', 'HOLDOUT'] as const) {
-    for (const profileSlug of ['fee-maximizer', 'market-depth', 'treasury-defensive'] as const) {
-      const group = rows.filter((row) =>
-        launchByName.get(row.scenario)?.cohort === cohort && row.profileSlug === profileSlug,
-      );
-      const average = (get: (row: ProfileScenarioResult) => number) =>
-        group.reduce((sum, row) => sum + get(row), 0) / group.length;
-      process.stdout.write(
-        `${`${cohort}:${profileSlug}`.padEnd(36)} ` +
-        `net/HODL ${average((row) => row.replay.netVsHodlUsd).toFixed(0).padStart(8)} ` +
-        `maxDD ${(average((row) => row.replay.maxDrawdownPct) * 100).toFixed(1).padStart(5)}% ` +
-        `rebal ${average((row) => row.replay.rebalances).toFixed(1).padStart(4)}\n`,
-      );
+function assertPermanent(
+  params: Parameters<typeof runInitialLiquidityCandidate>[0],
+  scenarios: StrategyScenario[],
+  score: InitialLiquidityScore,
+) {
+  const rows = runInitialLiquidityCandidate(params, scenarios, score.candidate);
+  for (const row of rows) {
+    if (row.replay.exited || row.replay.rebalances !== 0 || row.replay.compounds !== 0) {
+      throw new Error(`${score.candidate.name} managed or withdrew ${row.scenario}`);
     }
   }
 }
 
-function printTuning(scores: TreasuryCandidateScore[], holdout: TreasuryCandidateScore) {
-  process.stdout.write('\nTraining-only Treasury Defensive quote-exposure sweep:\n');
-  printTable([
-    ['quote', (row) => `${(row.candidate.deployedQuoteShare * 100).toFixed(0)}%`],
-    ['median net/HODL', (row) => row.medianNetVsHodlUsd.toFixed(0)],
-    ['average', (row) => row.averageNetVsHodlUsd.toFixed(0)],
-    ['worst', (row) => row.worstNetVsHodlUsd.toFixed(0)],
-    ['max DD', (row) => `${(row.averageMaxDrawdownPct * 100).toFixed(1)}%`],
-    ['rebal', (row) => row.averageRebalances.toFixed(1)],
-  ], scores);
-  process.stdout.write(
-    `\nLocked ${holdout.candidate.name} before holdout: ` +
-    `holdout median net/HODL ${holdout.medianNetVsHodlUsd.toFixed(0)}, ` +
-    `average ${holdout.averageNetVsHodlUsd.toFixed(0)}, ` +
-    `worst ${holdout.worstNetVsHodlUsd.toFixed(0)}, ` +
-    `average max DD ${(holdout.averageMaxDrawdownPct * 100).toFixed(1)}%.\n`,
-  );
-}
-
-function printPolicyExperiment(
-  scores: ExperimentalPolicyScore[],
-  holdout: ExperimentalPolicyScore,
-  holdoutRows: ExperimentalPolicyScenarioResult[],
-  ablations: ExperimentalPolicyScore[],
-  loaded: LoadedLaunch[],
-) {
-  process.stdout.write('\nStructural policy experiment — top 10 training candidates of 64:\n');
-  printTable([
-    ['delay', (row) => `${row.candidate.entryDelayHours}h`],
-    ['inventory', (row) => row.candidate.inventory],
-    ['exit', (row) => row.candidate.exit],
-    ['median net/HODL', (row) => row.medianNetVsHodlUsd.toFixed(0)],
-    ['average', (row) => row.averageNetVsHodlUsd.toFixed(0)],
-    ['worst', (row) => row.worstNetVsHodlUsd.toFixed(0)],
-    ['max DD', (row) => `${(row.averageMaxDrawdownPct * 100).toFixed(1)}%`],
-    ['fees', (row) => row.averageFeesUsd.toFixed(0)],
-    ['exited', (row) => `${(row.exitRate * 100).toFixed(0)}%`],
-  ], rankPolicyCandidates(scores).slice(0, 10));
-  process.stdout.write(
-    `\nLocked ${holdout.candidate.name} before holdout: ` +
-    `median net/HODL ${holdout.medianNetVsHodlUsd.toFixed(0)}, ` +
-    `average ${holdout.averageNetVsHodlUsd.toFixed(0)}, ` +
-    `worst ${holdout.worstNetVsHodlUsd.toFixed(0)}, ` +
-    `average max DD ${(holdout.averageMaxDrawdownPct * 100).toFixed(1)}%, ` +
-    `exit rate ${(holdout.exitRate * 100).toFixed(0)}%.\n`,
-  );
-  const launchByName = new Map(loaded.map((launch) => [launch.name, launch]));
-  process.stdout.write('\nLocked policy by holdout launch:\n');
-  printTable([
-    ['stratum', (row) => launchByName.get(row.scenario)?.stratum ?? '?'],
-    ['launch', (row) => row.scenario],
-    ['net/HODL', (row) => row.replay.netVsHodlUsd.toFixed(0)],
-    ['max DD', (row) => `${(row.replay.maxDrawdownPct * 100).toFixed(1)}%`],
-    ['fees', (row) => row.replay.totalFeesUsd.toFixed(0)],
-    ['exited', (row) => row.replay.exited ? 'yes' : 'no'],
-  ], holdoutRows);
-  process.stdout.write('\nHoldout component ablations (same launch-time benchmark):\n');
-  printTable([
-    ['candidate', (row) => row.candidate.name],
-    ['median net/HODL', (row) => row.medianNetVsHodlUsd.toFixed(0)],
-    ['average', (row) => row.averageNetVsHodlUsd.toFixed(0)],
-    ['worst', (row) => row.worstNetVsHodlUsd.toFixed(0)],
-    ['max DD', (row) => `${(row.averageMaxDrawdownPct * 100).toFixed(1)}%`],
-  ], ablations);
-}
-
 async function main() {
-  process.stdout.write('Historical strategy lab — frozen 24-launch Meteora stress cohort\n');
+  process.stdout.write('Initial liquidity lab — permanent launch positions across 24 Meteora paths\n');
   process.stdout.write('Fetching each pool\'s first 72 hours of 30-minute OHLCV...\n');
   const loaded: LoadedLaunch[] = [];
   for (const launch of HISTORICAL_LAUNCHES) {
@@ -191,47 +121,34 @@ async function main() {
       .filter((launch) => launch.cohort === cohort)
       .map((launch) => scenarioByName.get(launch.name)!);
   const params = toParams(loadRawConfig('config/default.toml'), BINS_PER_CLASSIC_POSITION);
+  const trainingScenarios = cohortScenarios('TRAINING');
+  const holdoutScenarios = cohortScenarios('HOLDOUT');
 
-  process.stdout.write(`\n${loaded.reduce((sum, launch) => sum + launch.candles.length, 0)} historical candles loaded.\n`);
-  process.stdout.write(`Every replay uses the same explicit $${MODELED_TVL_USD.toLocaleString()} modeled TVL.\n\n`);
-  const profileResults = evaluateProfiles(params, scenarios);
-  printReplay(profileResults, loaded);
+  process.stdout.write(`\n${loaded.reduce((sum, launch) => sum + launch.candles.length, 0)} replay candles loaded.\n`);
+  process.stdout.write('Evaluating 48 launch-time positions: 4 inventory mixes × 3 shapes × 4 widths.\n');
+  process.stdout.write('Every position opens immediately and remains untouched for the full replay.\n');
 
-  const locked = lockTreasuryCandidate(params, cohortScenarios('TRAINING'));
-  const holdout = evaluateTreasuryCandidate(params, cohortScenarios('HOLDOUT'), locked.candidate);
-  printTuning(locked.trainingScores, holdout);
-
-  const lockedPolicy = lockPolicyCandidate(params, cohortScenarios('TRAINING'));
-  const policyHoldout = evaluatePolicyCandidate(
-    params,
-    cohortScenarios('HOLDOUT'),
-    lockedPolicy.candidate,
+  const trainingScores = initialLiquidityCandidates().map((candidate) =>
+    evaluateInitialLiquidityCandidate(params, trainingScenarios, candidate),
   );
-  const holdoutPolicyScenarios = cohortScenarios('HOLDOUT');
-  const ablationCandidates: ExperimentalPolicyCandidate[] = [
-    { ...lockedPolicy.candidate, name: 'locked' },
-    { ...lockedPolicy.candidate, name: 'no-delay', entryDelayHours: 0 },
-    { ...lockedPolicy.candidate, name: 'no-explicit-exit', exit: 'NONE' },
-    { ...lockedPolicy.candidate, name: 'balanced-inventory', inventory: 'BALANCED' },
-  ];
-  printPolicyExperiment(
-    lockedPolicy.trainingScores,
-    policyHoldout,
-    runPolicyCandidate(params, holdoutPolicyScenarios, lockedPolicy.candidate),
-    ablationCandidates.map((candidate) =>
-      evaluatePolicyCandidate(params, holdoutPolicyScenarios, candidate),
-    ),
-    loaded,
+  const selected = selectInitialLiquidityOptions(trainingScores);
+  const rows = (Object.entries(selected) as [Objective, InitialLiquidityScore][]).map(
+    ([objective, training]) => ({
+      objective,
+      training,
+      holdout: evaluateInitialLiquidityCandidate(params, holdoutScenarios, training.candidate),
+    }),
   );
+  for (const row of rows) assertPermanent(params, holdoutScenarios, row.holdout);
+  printOptions(rows);
 
   process.stdout.write('\nEvidence boundary:\n');
-  process.stdout.write('- Prices and volumes are observed Meteora candles; intracandle paths are unavailable.\n');
-  process.stdout.write('- Missing intervals after the first trade are modeled as flat, zero-volume inactivity.\n');
-  process.stdout.write('- Historical TVL, per-bin liquidity, dynamic fees, and Jupiter routes are unavailable.\n');
-  process.stdout.write('- Fees use volume × base fee; liquidity uses fixed modeled TVL; swaps use 50 bps impact.\n');
-  process.stdout.write('- Structural policies charge 50 bps on starting cash converted into base at entry.\n');
-  process.stdout.write('- The stress cohort is outcome-stratified and not a representative population estimate.\n');
-  process.stdout.write('- The locked candidate remains experimental; this command does not change production profiles.\n');
+  process.stdout.write('- Each HODL benchmark starts with the same token/SOL mix as its LP candidate.\n');
+  process.stdout.write('- Initial inventory is assumed already available; no opening acquisition swap is modeled.\n');
+  process.stdout.write('- Positions never compound, rebalance, exit, or withdraw during the 72-hour replay.\n');
+  process.stdout.write('- Prices and volumes are historical; missing intervals are flat zero-volume inactivity.\n');
+  process.stdout.write('- TVL and per-bin liquidity are modeled; dynamic fees and historical routes are unavailable.\n');
+  process.stdout.write('- No production option is selected; the four objectives expose founder tradeoffs.\n');
 }
 
 await main();

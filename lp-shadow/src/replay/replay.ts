@@ -103,6 +103,8 @@ export type Variant = {
   entryDelayHours?: number;
   /** Anchor HODL/full-range at the first scenario observation while cash waits. */
   benchmarkAtScenarioStart?: boolean;
+  /** Starting base weight for a like-for-like HODL benchmark. Defaults to 50%. */
+  hodlBaseShare?: number;
   /** Replay-only cost charged when converting starting cash into base at entry. */
   entryCostUsd?: number;
   /** Replay-only risk exits. The shipping engine's low-volume exit is separate. */
@@ -112,6 +114,12 @@ export type Variant = {
     maxHoldHours?: number;
     target: 'BALANCED' | 'QUOTE';
   };
+  /** Open at the first observation without waiting for volatility samples. */
+  openAtScenarioStart?: boolean;
+  /** Fixed odd range width used when opening launch liquidity. */
+  initialRangeBins?: number;
+  /** Hold the initial position unchanged: no compound, rebalance, or exit. */
+  passiveLiquidity?: boolean;
 };
 
 export function loadVariants(base: RawConfig, paramsFile: string | undefined, label?: string): Variant[] {
@@ -221,6 +229,22 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
   if (!Number.isFinite(variant.entryCostUsd ?? 0) || (variant.entryCostUsd ?? 0) < 0) {
     throw new Error('replay entry cost must be finite and non-negative');
   }
+  if (
+    variant.hodlBaseShare !== undefined &&
+    (!Number.isFinite(variant.hodlBaseShare) ||
+      variant.hodlBaseShare < 0 ||
+      variant.hodlBaseShare > 1)
+  ) {
+    throw new Error('replay HODL base share must be between zero and one');
+  }
+  if (
+    variant.initialRangeBins !== undefined &&
+    (!Number.isInteger(variant.initialRangeBins) ||
+      variant.initialRangeBins < 3 ||
+      variant.initialRangeBins % 2 === 0)
+  ) {
+    throw new Error('replay initial range must use an odd number of at least three bins');
+  }
   const explicitExitPolicy = variant.explicitExitPolicy;
   for (const value of [
     explicitExitPolicy?.stopLossPct,
@@ -277,7 +301,7 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
     let benchmarkCredited = false;
 
     if (benchmarks === null && variant.benchmarkAtScenarioStart) {
-      benchmarks = initBenchmarks(snapshot, params.virtualNavUsd);
+      benchmarks = initBenchmarks(snapshot, params.virtualNavUsd, variant.hodlBaseShare);
     }
     if (benchmarks !== null && variant.benchmarkAtScenarioStart) {
       benchmarks = creditFullRangeFees(benchmarks, snapshot);
@@ -285,7 +309,7 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
     }
 
     if (position === null) {
-      if (!signals.volReliable || snapshot.ts < entryNotBeforeMs) {
+      if ((!signals.volReliable && !variant.openAtScenarioStart) || snapshot.ts < entryNotBeforeMs) {
         if (benchmarks) {
           lastMarks = {
             hodlNavUsd: hodlValue(benchmarks, snapshot.activePrice),
@@ -296,7 +320,12 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
         }
         continue;
       }
-      const plan = planRange(snapshot.activeBinId, snapshot.binStepBps, signals, params);
+      const plan = variant.initialRangeBins === undefined
+        ? planRange(snapshot.activeBinId, snapshot.binStepBps, signals, params)
+        : {
+            lowerBinId: snapshot.activeBinId - Math.floor(variant.initialRangeBins / 2),
+            upperBinId: snapshot.activeBinId + Math.floor(variant.initialRangeBins / 2),
+          };
       position = openPosition(
         snapshot,
         plan.lowerBinId,
@@ -309,7 +338,7 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
         ...position,
         cumCostsQuote: position.cumCostsQuote + (variant.entryCostUsd ?? 0),
       };
-      benchmarks ??= initBenchmarks(snapshot, params.virtualNavUsd);
+      benchmarks ??= initBenchmarks(snapshot, params.virtualNavUsd, variant.hodlBaseShare);
     }
 
     const deployedQuoteBeforeMark = position.quote;
@@ -353,7 +382,9 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
     }
 
     const rawDecision = explicitExitReason === null
-      ? decide(snapshot, position, signals, params, costInputs)
+      ? variant.passiveLiquidity
+        ? { kind: 'HOLD' as const, reasons: ['permanent initial liquidity: management disabled'] }
+        : decide(snapshot, position, signals, params, costInputs)
       : null;
     const guarded = rawDecision === null
       ? null

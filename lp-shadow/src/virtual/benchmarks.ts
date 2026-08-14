@@ -13,11 +13,18 @@ import { positionValueQuote } from './position.js';
  *
  * The full-range proxy is a v2-style constant-product LP: V(p) = V0 * sqrt(p/p0).
  */
-export function initBenchmarks(snapshot: PoolSnapshot, navUsd: number): BenchmarkState {
+export function initBenchmarks(
+  snapshot: PoolSnapshot,
+  navUsd: number,
+  hodlBaseShare = 0.5,
+): BenchmarkState {
+  if (!Number.isFinite(hodlBaseShare) || hodlBaseShare < 0 || hodlBaseShare > 1) {
+    throw new Error('HODL base share must be between zero and one');
+  }
   const price = snapshot.activePrice;
   return {
-    hodlBase: price > 0 ? navUsd / 2 / price : 0,
-    hodlQuote: navUsd / 2,
+    hodlBase: price > 0 ? (navUsd * hodlBaseShare) / price : 0,
+    hodlQuote: navUsd * (1 - hodlBaseShare),
     fullRangeV0: navUsd,
     fullRangeP0: price,
     fullRangeFees: 0,

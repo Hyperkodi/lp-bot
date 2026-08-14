@@ -241,6 +241,33 @@ describe('profile-aware replay inputs', () => {
     expect(result.events.some((event) => event.kind === 'EXPLICIT_EXIT')).toBe(true);
   });
 
+  it('opens fixed launch liquidity immediately and never manages or withdraws it', () => {
+    const params = { ...baseline, volMinSamples: 20, volTvlFloor: 999 };
+    const rows = [100, 70, 40].map((activePrice, index) => stored(index, {
+      ts: index * 60 * 60_000,
+      activePrice,
+      activeBinId: -index * 100,
+    }));
+    const result = runVariant({
+      name: 'permanent-launch-liquidity',
+      params,
+      benchmarkAtScenarioStart: true,
+      hodlBaseShare: 1,
+      openAtScenarioStart: true,
+      initialRangeBins: 31,
+      passiveLiquidity: true,
+      inventoryPolicy: { deployedBaseShare: 1, deployedQuoteShare: 0 },
+      poolCreatedAtMs: 0,
+    }, rows);
+
+    expect(result.ticks).toBe(3);
+    expect(result.exited).toBe(false);
+    expect(result.rebalances).toBe(0);
+    expect(result.compounds).toBe(0);
+    expect(result.events).toEqual([]);
+    expect(result.hodlNavUsd).toBeCloseTo(4_000, 8);
+  });
+
   it('evaluates every profile across the deterministic stress suite without declaring synthetic data proof', () => {
     const scenarios = syntheticStrategyScenarios();
     const results = evaluateProfiles(baseline, scenarios);

@@ -51,3 +51,14 @@ export {
   type ExperimentalPolicyScore,
   type ExperimentalPolicyScenarioResult,
 } from './policyTuning.js';
+export {
+  evaluateInitialLiquidityCandidate,
+  initialLiquidityCandidates,
+  initialLiquidityInventoryPolicy,
+  runInitialLiquidityCandidate,
+  selectInitialLiquidityOptions,
+  type InitialLiquidityCandidate,
+  type InitialLiquidityInventory,
+  type InitialLiquidityScenarioResult,
+  type InitialLiquidityScore,
+} from './initialLiquidity.js';
