@@ -41,7 +41,8 @@ describe('initial-liquidity launch planner', () => {
       tokenAmount: 1_000_000,
       positionSolAmount: 10,
       gasReserveSol: 0.05,
-      walletSolRequired: 10.05,
+      minimumWalletSolBeforeCreationCosts: 10.05,
+      creationCostsIncluded: false,
       initialLiquidityValueSol: 20,
       initialLiquidityValueUsd: 4_000,
     });

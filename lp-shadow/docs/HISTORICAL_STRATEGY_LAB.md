@@ -159,7 +159,9 @@ The detailed plan reports the 70-bin Meteora position-account interval and the
 smaller funded interval inside it. The team-supplied token/SOL ratio defines
 the opening price, so changing either launch amount also changes the implied
 price and FDV. `--gas-reserve` defaults to 0.05 SOL and is reported as wallet
-funding outside the position.
+funding outside the position. The displayed wallet amount is a minimum before
+pool creation, account rent, and transaction costs; those costs must be quoted
+and added before the founder is given a final deposit amount.
 
 The comparison models buyer depth contributed by this initial position only.
 It excludes other LPs, routing, dynamic fees, and market reaction, so it is a

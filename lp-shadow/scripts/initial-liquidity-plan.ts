@@ -99,8 +99,9 @@ function printOpening(plan: InitialLiquidityLaunchPlan): void {
   }
   process.stdout.write('\n');
   process.stdout.write(
-    `Wallet SOL required: ${number(plan.deposit.walletSolRequired, 4)} (${number(plan.deposit.positionSolAmount, 4)} position + ${number(plan.deposit.gasReserveSol, 4)} gas reserve)\n`,
+    `Minimum wallet SOL before creation costs: ${number(plan.deposit.minimumWalletSolBeforeCreationCosts, 4)} (${number(plan.deposit.positionSolAmount, 4)} position + ${number(plan.deposit.gasReserveSol, 4)} reserve)\n`,
   );
+  process.stdout.write('Pool creation, account rent, and transaction costs must be quoted and added before funding.\n');
   process.stdout.write(`Pool settings: ${plan.pool.binStepBps} bps bin step, ${plan.pool.baseFeeBps} bps base fee\n`);
   process.stdout.write(`Price confirmation: ${plan.price.confirmationPhrase}\n`);
   process.stdout.write('\nPermanent-position rule: open at pool creation and leave this initial liquidity deposited unless the founder explicitly withdraws.\n');

@@ -50,7 +50,8 @@ export type InitialLiquidityLaunchPlan = {
     tokenAmount: number;
     positionSolAmount: number;
     gasReserveSol: number;
-    walletSolRequired: number;
+    minimumWalletSolBeforeCreationCosts: number;
+    creationCostsIncluded: false;
     initialLiquidityValueSol: number;
     initialLiquidityValueUsd: number | null;
   };
@@ -196,7 +197,8 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
       tokenAmount: input.tokenAmount,
       positionSolAmount: input.solAmount,
       gasReserveSol: input.gasReserveSol,
-      walletSolRequired: input.solAmount + input.gasReserveSol,
+      minimumWalletSolBeforeCreationCosts: input.solAmount + input.gasReserveSol,
+      creationCostsIncluded: false,
       initialLiquidityValueSol,
       initialLiquidityValueUsd: usd(initialLiquidityValueSol, input.solPriceUsd),
     },
