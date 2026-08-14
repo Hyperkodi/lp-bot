@@ -37,11 +37,14 @@ describe('unsigned launch execution draft', () => {
       walletSolAmount: '133',
       tokenDecimals: 6,
       idempotencyPrefix: 'launch-draft-1',
+      poolCreation: { mode: 'DEVNET_CUSTOMIZABLE_PROXY' },
     });
 
     expect(draft).toMatchObject({
       status: 'UNSIGNED_PREVIEW',
       cluster: 'devnet',
+      poolType: 'DEVNET_CUSTOMIZABLE_PROXY',
+      matchesRequiredPoolType: false,
       orientation: {
         tokenX: 'PROJECT_TOKEN',
         tokenY: 'WRAPPED_SOL',
@@ -95,7 +98,34 @@ describe('unsigned launch execution draft', () => {
         walletSolAmount: '133',
         tokenDecimals: 6,
         idempotencyPrefix: 'launch-draft-1',
+        poolCreation: { mode: 'DEVNET_CUSTOMIZABLE_PROXY' },
       }),
     ).toThrow(/does not match/i);
+  });
+
+  it('derives the production Standard pool only from an explicit verified preset', () => {
+    const presetParameter = address(9);
+    const draft = draftLaunchExecution({
+      plan: plan(),
+      projectWalletId: 'wallet-1',
+      projectWalletAddress: address(1),
+      founderWithdrawalAddress: address(2),
+      feeTreasuryAddress: address(3),
+      projectTokenMint: address(4),
+      projectTokenAmount: '10000000',
+      solAmount: '132',
+      walletSolAmount: '133',
+      tokenDecimals: 6,
+      idempotencyPrefix: 'standard-draft-1',
+      poolCreation: { mode: 'STANDARD', presetParameter },
+    });
+
+    expect(draft.poolType).toBe('STANDARD');
+    expect(draft.matchesRequiredPoolType).toBe(true);
+    expect(draft.requests[0].detail).toMatchObject({
+      poolType: 'STANDARD',
+      presetParameter,
+      poolAddress: draft.poolAddress,
+    });
   });
 });

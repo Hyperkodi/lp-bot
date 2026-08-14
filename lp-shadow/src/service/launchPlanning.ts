@@ -10,6 +10,7 @@ import type {
 } from './types.js';
 
 const DEFAULTS = Object.freeze({
+  poolType: 'DLMM_STANDARD_DUAL_SIDED' as const,
   binStepBps: 50 as const,
   baseFeeBps: 30 as const,
   distributionShape: 'SPOT' as const,
@@ -41,6 +42,7 @@ export function planInitialLiquidityForLaunch(
       blockers: [
         'Project token mint address is still required.',
         'Token decimals must be verified against that mint.',
+        'A Standard-pool preset supporting the provisional 50 bps bin step and 30 bps base fee must be verified on the target cluster.',
         'Exact devnet account and transaction costs require unsigned preflight.',
         'Founder confirmation is required before any execution workflow.',
       ],

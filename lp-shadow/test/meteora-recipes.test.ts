@@ -155,6 +155,39 @@ describe('Meteora devnet recipes', () => {
     expect(add?.strategy).toMatchObject({ minBinId: 65, maxBinId: 134, strategyType: 1 });
   });
 
+  it('requires and forwards the on-chain preset for a standard pool', async () => {
+    const sdk = new FakeSdk();
+    const recipes = new MeteoraDevnetRecipes(sdk);
+    const preset = address(8);
+    await recipes.build(
+      request('CREATE_POOL', {
+        tokenXMint: tokenX.toBase58(),
+        tokenYMint: tokenY.toBase58(),
+        binStep: 50,
+        activeId: 10,
+        feeBps: 30,
+        poolType: 'STANDARD',
+        presetParameter: preset.toBase58(),
+      }),
+    );
+    expect(sdk.createArgs).toMatchObject({
+      poolType: 'STANDARD',
+      presetParameter: preset,
+    });
+    await expect(
+      recipes.build(
+        request('CREATE_POOL', {
+          tokenXMint: tokenX.toBase58(),
+          tokenYMint: tokenY.toBase58(),
+          binStep: 50,
+          activeId: 10,
+          feeBps: 30,
+          poolType: 'STANDARD',
+        }),
+      ),
+    ).rejects.toThrow(/presetParameter/i);
+  });
+
   it('funds the planner-selected subset inside the 70-bin position account', async () => {
     const sdk = new FakeSdk();
     const recipes = new MeteoraDevnetRecipes(sdk);

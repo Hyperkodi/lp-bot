@@ -130,6 +130,7 @@ export type InitialLiquidityPlanRequest = {
 export type InitialLiquidityPlanningReport = {
   status: 'READ_ONLY';
   defaults: {
+    poolType: 'DLMM_STANDARD_DUAL_SIDED';
     binStepBps: 50;
     baseFeeBps: 30;
     distributionShape: 'SPOT';

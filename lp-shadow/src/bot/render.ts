@@ -203,6 +203,7 @@ export function renderInitialLiquidityPlan(report: InitialLiquidityPlanningRepor
     `Opening price: ${escapeHtml(priceFormatter.format(plan.price.representedPriceSolPerToken))} SOL/token`,
     `Represented FDV: ${escapeHtml(formatOptionalMoney(plan.price.representedFdvUsd))}`,
     `Default recipe: ${escapeHtml(plan.distributionShape)} / ${escapeHtml(String(plan.fundedRange.totalBins))} funded bins`,
+    `Pool type: ${escapeHtml(report.defaults.poolType)} (provisional preset not yet verified)`,
     `Price coverage: -${escapeHtml(numberFormatter.format(plan.fundedRange.downsidePct * 100))}% / +${escapeHtml(numberFormatter.format(plan.fundedRange.upsidePct * 100))}%`,
     `Known SDK account rent: ${escapeHtml(numberFormatter.format(plan.creationCost.knownRequiredAccountRentSol))} SOL`,
     `Known wallet minimum: ${escapeHtml(numberFormatter.format(plan.creationCost.minimumWalletSolWithKnownAccountRent))} SOL + unresolved preflight costs`,

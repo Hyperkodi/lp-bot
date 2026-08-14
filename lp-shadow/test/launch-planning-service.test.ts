@@ -13,6 +13,7 @@ describe('initial-liquidity planning service', () => {
     });
     expect(report.status).toBe('READ_ONLY');
     expect(report.defaults).toMatchObject({
+      poolType: 'DLMM_STANDARD_DUAL_SIDED',
       binStepBps: 50,
       baseFeeBps: 30,
       distributionShape: 'SPOT',
@@ -22,6 +23,7 @@ describe('initial-liquidity planning service', () => {
     expect(report.plan.fundedRange.totalBins).toBe(69);
     expect(report.comparisons).toHaveLength(12);
     expect(report.blockers).toContain('Project token mint address is still required.');
+    expect(report.blockers.some((blocker) => blocker.includes('Standard-pool preset'))).toBe(true);
   });
 
   it('maps planner validation failures to the public service error', () => {

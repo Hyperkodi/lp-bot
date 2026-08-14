@@ -6,6 +6,7 @@ import {
   deriveCustomizablePoolAddress,
   deriveMeteoraPoolProgramAccounts,
   deriveMeteoraPositionAddress,
+  deriveStandardPoolAddress,
 } from '../execution/meteoraDlmm.js';
 import type { ExecutionRequest } from '../execution/types.js';
 import { PERMANENT_INITIAL_POSITION_ROLE } from '../execution/initialLiquidityPolicy.js';
@@ -24,11 +25,16 @@ export type LaunchExecutionDraftInput = {
   walletSolAmount: string;
   tokenDecimals: number;
   idempotencyPrefix: string;
+  poolCreation:
+    | { mode: 'DEVNET_CUSTOMIZABLE_PROXY' }
+    | { mode: 'STANDARD'; presetParameter: string };
 };
 
 export type LaunchExecutionDraft = {
   status: 'UNSIGNED_PREVIEW';
   cluster: 'devnet';
+  poolType: 'DEVNET_CUSTOMIZABLE_PROXY' | 'STANDARD';
+  matchesRequiredPoolType: boolean;
   orientation: {
     tokenX: 'PROJECT_TOKEN';
     tokenY: 'WRAPPED_SOL';
@@ -113,7 +119,12 @@ export function draftLaunchExecution(input: LaunchExecutionDraftInput): LaunchEx
 
   // The reviewed price is SOL per project token, so the mint roles are fixed.
   // Swapping these roles would invert every active-bin and range calculation.
-  const poolAddress = deriveCustomizablePoolAddress(projectToken, NATIVE_MINT);
+  const presetParameter = input.poolCreation.mode === 'STANDARD'
+    ? publicKey(input.poolCreation.presetParameter, 'standard pool preset parameter')
+    : null;
+  const poolAddress = presetParameter
+    ? deriveStandardPoolAddress(presetParameter, projectToken, NATIVE_MINT)
+    : deriveCustomizablePoolAddress(projectToken, NATIVE_MINT);
   const positionAddress = deriveMeteoraPositionAddress(
     poolAddress,
     projectWallet,
@@ -160,6 +171,8 @@ export function draftLaunchExecution(input: LaunchExecutionDraftInput): LaunchEx
       binStep: input.plan.pool.binStepBps,
       activeId: input.plan.price.activeBinId,
       feeBps: input.plan.pool.baseFeeBps,
+      poolType: input.poolCreation.mode === 'STANDARD' ? 'STANDARD' : 'CUSTOMIZABLE',
+      ...(presetParameter ? { presetParameter: presetParameter.toBase58() } : {}),
     },
   };
   const openPosition: ExecutionRequest = {
@@ -189,6 +202,8 @@ export function draftLaunchExecution(input: LaunchExecutionDraftInput): LaunchEx
   return {
     status: 'UNSIGNED_PREVIEW',
     cluster: 'devnet',
+    poolType: input.poolCreation.mode,
+    matchesRequiredPoolType: input.poolCreation.mode === 'STANDARD',
     orientation: {
       tokenX: 'PROJECT_TOKEN',
       tokenY: 'WRAPPED_SOL',

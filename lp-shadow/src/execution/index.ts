@@ -41,6 +41,7 @@ export {
   deriveCustomizablePoolAddress,
   deriveMeteoraPoolProgramAccounts,
   deriveMeteoraPositionAddress,
+  deriveStandardPoolAddress,
   findExistingCustomizablePool,
   type MeteoraPoolFacade,
   type MeteoraSdkFacade,

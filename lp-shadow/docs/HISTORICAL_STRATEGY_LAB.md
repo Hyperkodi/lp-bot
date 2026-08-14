@@ -178,6 +178,17 @@ devnet pool and position addresses, and maps the funded interval into
 transaction. Mint addresses, the real token decimal count, wallet addresses,
 and a fresh wallet balance are required before it can be created.
 
+The founder's two-sided token + SOL injection maps to a DLMM Standard pool.
+Meteora's separately named DLMM Launch Pool uses one-sided base-token seed
+liquidity, a curve or single-bin seed mode, and an optional lock duration; it
+is not the same product. Standard creation requires an on-chain
+`PresetParameter2` matching the selected bin-step/fee/mode combination. The
+draft supports that Standard path only when the preset public key has been
+resolved and verified. Its customizable-pool mode is named
+`DEVNET_CUSTOMIZABLE_PROXY`, is marked non-production, and exists only to test
+the transaction integration when the desired Standard preset is unavailable
+on devnet.
+
 The draft marks the position as `PERMANENT_INITIAL`. The execution recipe
 allows that role to open, but rejects system compounding, rebalancing, exit,
 fee settlement, and withdrawal. A withdrawal is accepted only when explicitly

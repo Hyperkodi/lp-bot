@@ -16,6 +16,7 @@ describe('/launchplan read-only onboarding', () => {
     const result = harness.texts().at(-1) ?? '';
     expect(result).toContain('Initial liquidity plan — read only');
     expect(result).toContain('SPOT / 69 funded bins');
+    expect(result).toContain('DLMM_STANDARD_DUAL_SIDED');
     expect(result).toContain('0.0000131782698211 SOL/token');
     expect(result).toContain('Known SDK account rent');
     expect(result).toContain('Buyer capacity from this position only');

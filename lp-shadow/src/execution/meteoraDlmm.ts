@@ -137,6 +137,17 @@ export class RealMeteoraSdkFacade implements MeteoraSdkFacade {
   constructor(private readonly connection: Connection) {}
 
   buildCreatePool(value: Record<string, unknown>) {
+    if (value.poolType === 'STANDARD') {
+      return DLMM.createLbPair2(
+        this.connection,
+        value.creator as PublicKey,
+        value.tokenXMint as PublicKey,
+        value.tokenYMint as PublicKey,
+        value.presetParameter as PublicKey,
+        new BN(value.activeId as number),
+        { cluster: 'devnet' },
+      );
+    }
     return DLMM.createCustomizablePermissionlessLbPair2(
       this.connection,
       new BN(value.binStep as number),
@@ -178,6 +189,17 @@ export function deriveCustomizablePoolAddress(
     (tokenX: PublicKey, tokenY: PublicKey, programId: PublicKey) => [PublicKey, number]
   >('deriveCustomizablePermissionlessLbPair');
   return derivePair(tokenXMint, tokenYMint, devnetProgramId())[0];
+}
+
+export function deriveStandardPoolAddress(
+  presetParameter: PublicKey,
+  tokenXMint: PublicKey,
+  tokenYMint: PublicKey,
+): PublicKey {
+  const derivePair = sdkExport<
+    (preset: PublicKey, tokenX: PublicKey, tokenY: PublicKey, programId: PublicKey) => [PublicKey, number]
+  >('deriveLbPairWithPresetParamWithIndexKey');
+  return derivePair(presetParameter, tokenXMint, tokenYMint, devnetProgramId())[0];
 }
 
 export function deriveMeteoraPositionAddress(
@@ -326,6 +348,10 @@ export class MeteoraDevnetRecipes {
     enforcePositionPolicy(request.action, value);
     const wallet = publicKey(request.destinations.projectWalletAddress, 'project wallet');
     if (request.action === 'CREATE_POOL') {
+      const poolType = value.poolType === undefined ? 'CUSTOMIZABLE' : value.poolType;
+      if (poolType !== 'CUSTOMIZABLE' && poolType !== 'STANDARD') {
+        throw new Error('poolType must be CUSTOMIZABLE or STANDARD');
+      }
       const transaction = await this.sdk.buildCreatePool({
         tokenXMint: publicKey(value.tokenXMint, 'tokenXMint'),
         tokenYMint: publicKey(value.tokenYMint, 'tokenYMint'),
@@ -333,6 +359,10 @@ export class MeteoraDevnetRecipes {
         binStep: integer(value.binStep, 'binStep', 1),
         activeId: integer(value.activeId, 'activeId', -443_636),
         feeBps: integer(value.feeBps, 'feeBps', 0),
+        poolType,
+        ...(poolType === 'STANDARD'
+          ? { presetParameter: publicKey(value.presetParameter, 'presetParameter') }
+          : {}),
       });
       return { transactions: transactionItems([transaction], 'create-pool', request.notionalSol) };
     }
