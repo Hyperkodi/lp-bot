@@ -1,3 +1,5 @@
+import Decimal from 'decimal.js';
+
 export type InitialPriceInput = {
   tokenAmount: number;
   solAmount: number;
@@ -53,5 +55,3 @@ export function prepareInitialPrice(input: InitialPriceInput): InitialPriceCerem
 export function verifyPriceConfirmation(ceremony: InitialPriceCeremony, typed: string): boolean {
   return typed.trim() === ceremony.confirmationPhrase;
 }
-import Decimal from 'decimal.js';
-

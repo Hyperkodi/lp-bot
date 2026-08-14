@@ -9,6 +9,7 @@ const launch: LaunchPlanInput = {
   tokenAmount: 1_000_000,
   solAmount: 10,
   tokenSupply: 100_000_000,
+  tokenDecimals: 6,
   solPriceUsd: 200,
   binStepBps: 25,
   baseFeeBps: 30,
@@ -25,27 +26,35 @@ describe('initial-liquidity launch planner', () => {
 
     expect(plan.price).toMatchObject({
       mode: 'CREATE',
-      priceSolPerToken: 0.00001,
-      impliedFdvSol: 1_000,
-      impliedFdvUsd: 200_000,
+      intendedPriceSolPerToken: 0.00001,
+      intendedFdvSol: 1_000,
+      intendedFdvUsd: 200_000,
+      activeBinId: expect.any(Number),
+      roundingDirection: expect.stringMatching(/^(DOWN|UP|EXACT)$/),
     });
-    expect(plan.positionAccount).toEqual({ lowerBinId: -35, upperBinId: 34, width: 70 });
+    expect(plan.positionAccount).toEqual({
+      lowerBinId: plan.price.activeBinId - 35,
+      upperBinId: plan.price.activeBinId + 34,
+      width: 70,
+    });
     expect(plan.fundedRange).toMatchObject({
-      lowerBinId: -7,
-      upperBinId: 7,
+      lowerBinId: plan.price.activeBinId - 7,
+      upperBinId: plan.price.activeBinId + 7,
       totalBins: 15,
     });
-    expect(plan.fundedRange.lowerPriceSolPerToken).toBeLessThan(plan.price.priceSolPerToken);
-    expect(plan.fundedRange.upperPriceSolPerToken).toBeGreaterThan(plan.price.priceSolPerToken);
-    expect(plan.deposit).toEqual({
+    expect(plan.fundedRange.lowerPriceSolPerToken).toBeLessThan(plan.price.representedPriceSolPerToken);
+    expect(plan.fundedRange.upperPriceSolPerToken).toBeGreaterThan(plan.price.representedPriceSolPerToken);
+    expect(plan.deposit).toMatchObject({
       tokenAmount: 1_000_000,
       positionSolAmount: 10,
       gasReserveSol: 0.05,
       minimumWalletSolBeforeCreationCosts: 10.05,
       creationCostsIncluded: false,
-      initialLiquidityValueSol: 20,
-      initialLiquidityValueUsd: 4_000,
     });
+    expect(plan.deposit.initialLiquidityValueSol).toBeCloseTo(
+      10 + 1_000_000 * plan.price.representedPriceSolPerToken,
+      12,
+    );
     expect(plan.buyer.requestedSol).toBe(5);
     expect(plan.buyer.requestedUsd).toBe(1_000);
     expect(plan.buyer.depthWithinImpactSol).toBeGreaterThan(0);

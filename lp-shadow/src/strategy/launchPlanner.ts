@@ -1,9 +1,9 @@
 import { binPrice } from '../binMath.js';
-import { prepareInitialPrice, type InitialPriceCeremony } from '../pool/initialPrice.js';
+import { prepareInitialPrice } from '../pool/initialPrice.js';
+import { planMeteoraBinPrice, type MeteoraPriceRoundingDirection } from '../pool/meteoraPrice.js';
 import { CLASSIC_POSITION_WIDTH, classicPositionRange } from '../positionRange.js';
 import type { DistributionShape, PoolSnapshot } from '../types.js';
 import {
-  BALANCED_INVENTORY_POLICY,
   buyDepthWithinPriceImpact,
   openPosition,
   simulateBuyerSwap,
@@ -20,6 +20,7 @@ export type LaunchPlanInput = {
   tokenAmount: number;
   solAmount: number;
   tokenSupply: number;
+  tokenDecimals: number;
   solPriceUsd: number | null;
   binStepBps: number;
   baseFeeBps: number;
@@ -28,12 +29,25 @@ export type LaunchPlanInput = {
   buyerOrderSol: number;
   maxBuyerImpactBps: number;
   gasReserveSol: number;
-  activeBinId?: number;
+};
+
+export type LaunchPricePlan = {
+  mode: 'CREATE';
+  intendedPriceSolPerToken: number;
+  representedPriceSolPerToken: number;
+  activeBinId: number;
+  roundingDirection: MeteoraPriceRoundingDirection;
+  deviationBps: number;
+  intendedFdvSol: number;
+  intendedFdvUsd: number | null;
+  representedFdvSol: number;
+  representedFdvUsd: number | null;
+  confirmationPhrase: string;
 };
 
 export type InitialLiquidityLaunchPlan = {
   distributionShape: DistributionShape;
-  price: InitialPriceCeremony;
+  price: LaunchPricePlan;
   positionAccount: { lowerBinId: number; upperBinId: number; width: number };
   fundedRange: {
     lowerBinId: number;
@@ -90,7 +104,7 @@ function nonNegative(value: number, label: string): void {
   if (value < 0) throw new Error(`${label} must be non-negative`);
 }
 
-function validateInput(input: LaunchPlanInput): number {
+function validateInput(input: LaunchPlanInput): void {
   if (!Number.isInteger(input.binStepBps) || input.binStepBps <= 0) {
     throw new Error('bin step must be a positive integer number of basis points');
   }
@@ -110,9 +124,6 @@ function validateInput(input: LaunchPlanInput): number {
   nonNegative(input.buyerOrderSol, 'buyer order');
   nonNegative(input.maxBuyerImpactBps, 'maximum buyer impact');
   nonNegative(input.gasReserveSol, 'gas reserve');
-  const activeBinId = input.activeBinId ?? 0;
-  if (!Number.isSafeInteger(activeBinId)) throw new Error('active bin id must be a safe integer');
-  return activeBinId;
 }
 
 function usd(valueSol: number, solPriceUsd: number | null): number | null {
@@ -121,18 +132,42 @@ function usd(valueSol: number, solPriceUsd: number | null): number | null {
 
 /**
  * Turns real founder inputs into a read-only opening plan. The supplied token
- * and SOL amounts define the opening price, so their marked values are equal
- * at creation and both sides can be allocated without an invented swap.
+ * and SOL amounts define the intended opening price. Meteora's representable
+ * bin price is then used for all ranges and buyer simulations, without an
+ * invented swap or a hidden bin-zero assumption.
  */
 export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLaunchPlan {
-  const activeBinId = validateInput(input);
-  const price = prepareInitialPrice({
+  validateInput(input);
+  const intended = prepareInitialPrice({
     tokenAmount: input.tokenAmount,
     solAmount: input.solAmount,
     tokenSupply: input.tokenSupply,
     solPriceUsd: input.solPriceUsd,
     existingPoolPriceSol: null,
   });
+  const represented = planMeteoraBinPrice({
+    intendedPriceQuotePerBase: intended.priceSolPerToken,
+    baseTokenDecimals: input.tokenDecimals,
+    quoteTokenDecimals: 9,
+    binStepBps: input.binStepBps,
+    rounding: 'NEAREST',
+  });
+  const displayPrice = Number(represented.representedPriceQuotePerBase.toPrecision(12)).toString();
+  const representedFdvSol = represented.representedPriceQuotePerBase * input.tokenSupply;
+  const price: LaunchPricePlan = {
+    mode: 'CREATE',
+    intendedPriceSolPerToken: intended.priceSolPerToken,
+    representedPriceSolPerToken: represented.representedPriceQuotePerBase,
+    activeBinId: represented.activeBinId,
+    roundingDirection: represented.roundingDirection,
+    deviationBps: represented.deviationBps,
+    intendedFdvSol: intended.impliedFdvSol,
+    intendedFdvUsd: intended.impliedFdvUsd,
+    representedFdvSol,
+    representedFdvUsd: usd(representedFdvSol, input.solPriceUsd),
+    confirmationPhrase: `CONFIRM PRICE ${displayPrice} SOL`,
+  };
+  const activeBinId = price.activeBinId;
   const positionAccount = classicPositionRange(activeBinId);
   const fundedLower = activeBinId - Math.floor(input.totalBins / 2);
   const fundedUpper = fundedLower + input.totalBins - 1;
@@ -143,20 +178,21 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
   const lowerPrice = binPrice(
     fundedLower,
     activeBinId,
-    price.priceSolPerToken,
+    price.representedPriceSolPerToken,
     input.binStepBps,
   );
   const upperPrice = binPrice(
     fundedUpper,
     activeBinId,
-    price.priceSolPerToken,
+    price.representedPriceSolPerToken,
     input.binStepBps,
   );
-  const initialLiquidityValueSol = input.solAmount * 2;
+  const tokenValueSol = input.tokenAmount * price.representedPriceSolPerToken;
+  const initialLiquidityValueSol = tokenValueSol + input.solAmount;
   const snapshot: PoolSnapshot = {
     ts: 0,
     activeBinId,
-    activePrice: price.priceSolPerToken,
+    activePrice: price.representedPriceSolPerToken,
     binStepBps: input.binStepBps,
     feeBps: input.baseFeeBps,
     liqActiveBin: 0,
@@ -168,7 +204,10 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
     fundedUpper,
     initialLiquidityValueSol,
     input.distributionShape,
-    BALANCED_INVENTORY_POLICY,
+    {
+      deployedBaseShare: tokenValueSol / initialLiquidityValueSol,
+      deployedQuoteShare: input.solAmount / initialLiquidityValueSol,
+    },
   );
   const buyer = simulateBuyerSwap(position, snapshot, input.buyerOrderSol);
   const depthWithinImpactSol = buyDepthWithinPriceImpact(
@@ -190,8 +229,8 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
       upperPriceSolPerToken: upperPrice,
       lowerPriceUsdPerToken: usd(lowerPrice, input.solPriceUsd),
       upperPriceUsdPerToken: usd(upperPrice, input.solPriceUsd),
-      downsidePct: 1 - lowerPrice / price.priceSolPerToken,
-      upsidePct: upperPrice / price.priceSolPerToken - 1,
+      downsidePct: 1 - lowerPrice / price.representedPriceSolPerToken,
+      upsidePct: upperPrice / price.representedPriceSolPerToken - 1,
     },
     deposit: {
       tokenAmount: input.tokenAmount,

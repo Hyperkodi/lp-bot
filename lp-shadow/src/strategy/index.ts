@@ -68,5 +68,6 @@ export {
   compareInitialLiquidityPlans,
   planInitialLiquidity,
   type InitialLiquidityLaunchPlan,
+  type LaunchPricePlan,
   type LaunchPlanInput,
 } from './launchPlanner.js';

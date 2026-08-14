@@ -133,32 +133,36 @@ From the `lp-shadow` directory, run this example with the placeholder numbers
 replaced by the real launch values:
 
 ```powershell
-pnpm strategy:plan -- --token 1000000 --sol 10 --supply 100000000 --sol-price 200 --buyer-usd 1000 --impact-bps 100 --bin-step 25 --fee-bps 30
+pnpm strategy:plan -- --token 1000000 --token-decimals 6 --sol 10 --supply 100000000 --sol-price 200 --buyer-usd 1000 --impact-bps 100 --bin-step 25 --fee-bps 30
 ```
 
 The inputs mean:
 
 1. launched-token quantity allocated to initial liquidity;
-2. SOL allocated at pool creation;
-3. total token supply, used to calculate implied FDV;
-4. current SOL/USD display price (entered explicitly; the command does not
+2. the token mint's decimal count, required to map a human price to Meteora's
+   atomic-unit bin price;
+3. SOL allocated at pool creation;
+4. total token supply, used to calculate implied FDV;
+5. current SOL/USD display price (entered explicitly; the command does not
    fetch a live price);
-5. largest buyer order that should clear near launch;
-6. acceptable modeled price impact for that order (`100` bps is 1%);
-7. chosen pool bin step and base fee.
+6. largest buyer order that should clear near launch;
+7. acceptable modeled price impact for that order (`100` bps is 1%);
+8. chosen pool bin step and base fee.
 
 With no shape or width specified, the command compares Spot, Curve, and BidAsk
 at 15, 31, 51, and 69 funded bins. Every row uses the exact same token and SOL
 deposit. To inspect one recipe in detail, add both flags:
 
 ```powershell
-pnpm strategy:plan -- --token 1000000 --sol 10 --supply 100000000 --sol-price 200 --buyer-usd 1000 --impact-bps 100 --bin-step 25 --fee-bps 30 --shape CURVE --bins 15
+pnpm strategy:plan -- --token 1000000 --token-decimals 6 --sol 10 --supply 100000000 --sol-price 200 --buyer-usd 1000 --impact-bps 100 --bin-step 25 --fee-bps 30 --shape CURVE --bins 15
 ```
 
-The detailed plan reports the 70-bin Meteora position-account interval and the
-smaller funded interval inside it. The team-supplied token/SOL ratio defines
-the opening price, so changing either launch amount also changes the implied
-price and FDV. `--gas-reserve` defaults to 0.05 SOL and is reported as wallet
+The detailed plan reports the represented Meteora price and active bin, the
+70-bin position-account interval, and the smaller funded interval inside it.
+The team-supplied token/SOL ratio defines the intended opening price, which is
+rounded to the nearest representable bin and disclosed before confirmation.
+Changing either launch amount also changes the implied price and FDV.
+`--gas-reserve` defaults to 0.05 SOL and is reported as wallet
 funding outside the position. The displayed wallet amount is a minimum before
 pool creation, account rent, and transaction costs; those costs must be quoted
 and added before the founder is given a final deposit amount.

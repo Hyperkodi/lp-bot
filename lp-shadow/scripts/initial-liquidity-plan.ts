@@ -12,6 +12,7 @@ const USAGE = `Initial-liquidity launch planner (read-only)
 
 Required:
   --token <amount>       Project tokens deposited into initial liquidity
+  --token-decimals <n>   Project token mint decimals (read from the mint)
   --sol <amount>         SOL deposited into initial liquidity
   --supply <amount>      Total token supply
   --bin-step <bps>       Meteora bin step in basis points
@@ -89,8 +90,14 @@ function comparisonTable(plans: InitialLiquidityLaunchPlan[]): string {
 
 function printOpening(plan: InitialLiquidityLaunchPlan): void {
   process.stdout.write('Initial-liquidity launch plan (read-only)\n\n');
-  process.stdout.write(`Opening price: ${number(plan.price.priceSolPerToken, 12)} SOL per token\n`);
-  process.stdout.write(`Implied FDV: ${number(plan.price.impliedFdvSol, 4)} SOL (${money(plan.price.impliedFdvUsd)})\n`);
+  process.stdout.write(`Intended price: ${number(plan.price.intendedPriceSolPerToken, 12)} SOL per token\n`);
+  process.stdout.write(
+    `Represented Meteora price: ${number(plan.price.representedPriceSolPerToken, 12)} SOL per token (active bin ${plan.price.activeBinId})\n`,
+  );
+  process.stdout.write(
+    `Price rounding: ${plan.price.roundingDirection}, ${plan.price.deviationBps.toFixed(2)} bps from the intended price\n`,
+  );
+  process.stdout.write(`Represented FDV: ${number(plan.price.representedFdvSol, 4)} SOL (${money(plan.price.representedFdvUsd)})\n`);
   process.stdout.write(
     `Initial position: ${number(plan.deposit.tokenAmount, 4)} tokens + ${number(plan.deposit.positionSolAmount, 4)} SOL`,
   );
@@ -135,6 +142,7 @@ function main(): void {
   const { values } = parseArgs({
     options: {
       token: { type: 'string' },
+      'token-decimals': { type: 'string' },
       sol: { type: 'string' },
       supply: { type: 'string' },
       'sol-price': { type: 'string' },
@@ -178,6 +186,7 @@ function main(): void {
 
   const input: LaunchPlanInput = {
     tokenAmount: numeric(values.token, 'token'),
+    tokenDecimals: numeric(values['token-decimals'], 'token-decimals'),
     solAmount: numeric(values.sol, 'sol'),
     tokenSupply: numeric(values.supply, 'supply'),
     solPriceUsd,
