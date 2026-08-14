@@ -232,3 +232,19 @@ fee-mode combination exists.
 An unsigned Standard-pool execution draft must carry the discovered preset
 metadata, not only an address. Drafting fails closed if its bin step, base fee,
 function type, or fee-collection mode differs from the reviewed plan.
+
+### Token-mint readiness
+
+Once the project mint is known, run the read-only check below with the
+registered founder withdrawal address and the expected tokenomics:
+
+```powershell
+pnpm launch:mint -- <mint> <founder-address> 6 1000000000
+```
+
+It reads the devnet mint account and verifies the SPL token program, decimal
+count, and current on-chain supply. It applies the existing token-safety screen
+for permanent delegates, transfer hooks, transfer fees, non-transferability,
+and mint/freeze authorities. Unsafe extensions and mismatched tokenomics block
+readiness; retained founder authorities require explicit acknowledgement. The
+command contains no keypair, transaction, signer, or send path.

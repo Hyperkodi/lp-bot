@@ -3,4 +3,10 @@ export {
   type TokenMintSafetyFacts,
   type TokenSafetyResult,
 } from './screen.js';
-export { decodeTokenMintAccount, readTokenMintSafetyFacts } from './decode.js';
+export {
+  decodeTokenMintAccount,
+  decodeTokenMintDetails,
+  readTokenMintDetails,
+  readTokenMintSafetyFacts,
+  type TokenMintAccountDetails,
+} from './decode.js';

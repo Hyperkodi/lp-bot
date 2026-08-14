@@ -7,12 +7,22 @@ import {
   unpackMint,
 } from '@solana/spl-token';
 import type { AccountInfo, Connection, PublicKey } from '@solana/web3.js';
+import Decimal from 'decimal.js';
 import type { TokenMintSafetyFacts } from './screen.js';
 
-export function decodeTokenMintAccount(
+export type TokenMintAccountDetails = {
+  mintAddress: string;
+  programId: string;
+  decimals: number;
+  supplyAtomic: string;
+  supplyTokens: string;
+  safety: TokenMintSafetyFacts;
+};
+
+export function decodeTokenMintDetails(
   mintAddress: PublicKey,
   account: AccountInfo<Buffer>,
-): TokenMintSafetyFacts {
+): TokenMintAccountDetails {
   const isLegacy = account.owner.equals(TOKEN_PROGRAM_ID);
   const isToken2022 = account.owner.equals(TOKEN_2022_PROGRAM_ID);
   if (!isLegacy && !isToken2022) {
@@ -25,14 +35,39 @@ export function decodeTokenMintAccount(
   const extensions = isToken2022 ? getExtensionTypes(mint.tlvData) : [];
   const permanentDelegate = isToken2022 ? getPermanentDelegate(mint)?.delegate ?? null : null;
   return {
-    program: isLegacy ? 'LEGACY_SPL' : 'TOKEN_2022',
-    mintAuthority: mint.mintAuthority?.toBase58() ?? null,
-    freezeAuthority: mint.freezeAuthority?.toBase58() ?? null,
-    permanentDelegate: permanentDelegate?.toBase58() ?? null,
-    hasTransferHook: extensions.includes(ExtensionType.TransferHook),
-    hasTransferFee: extensions.includes(ExtensionType.TransferFeeConfig),
-    nonTransferable: extensions.includes(ExtensionType.NonTransferable),
+    mintAddress: mintAddress.toBase58(),
+    programId: account.owner.toBase58(),
+    decimals: mint.decimals,
+    supplyAtomic: mint.supply.toString(),
+    supplyTokens: new Decimal(mint.supply.toString())
+      .div(new Decimal(10).pow(mint.decimals))
+      .toString(),
+    safety: {
+      program: isLegacy ? 'LEGACY_SPL' : 'TOKEN_2022',
+      mintAuthority: mint.mintAuthority?.toBase58() ?? null,
+      freezeAuthority: mint.freezeAuthority?.toBase58() ?? null,
+      permanentDelegate: permanentDelegate?.toBase58() ?? null,
+      hasTransferHook: extensions.includes(ExtensionType.TransferHook),
+      hasTransferFee: extensions.includes(ExtensionType.TransferFeeConfig),
+      nonTransferable: extensions.includes(ExtensionType.NonTransferable),
+    },
   };
+}
+
+export function decodeTokenMintAccount(
+  mintAddress: PublicKey,
+  account: AccountInfo<Buffer>,
+): TokenMintSafetyFacts {
+  return decodeTokenMintDetails(mintAddress, account).safety;
+}
+
+export async function readTokenMintDetails(
+  connection: Pick<Connection, 'getAccountInfo'>,
+  mintAddress: PublicKey,
+): Promise<TokenMintAccountDetails> {
+  const account = await connection.getAccountInfo(mintAddress, 'confirmed');
+  if (!account) throw new Error(`token mint ${mintAddress.toBase58()} was not found`);
+  return decodeTokenMintDetails(mintAddress, account);
 }
 
 export async function readTokenMintSafetyFacts(

@@ -12,7 +12,7 @@ import {
 } from '@solana/spl-token';
 import { PublicKey, SystemProgram, type AccountInfo } from '@solana/web3.js';
 import { describe, expect, it } from 'vitest';
-import { decodeTokenMintAccount } from '../src/tokenSafety/index.js';
+import { decodeTokenMintAccount, decodeTokenMintDetails } from '../src/tokenSafety/index.js';
 
 type TestExtension = { type: ExtensionType; data?: Buffer };
 
@@ -75,6 +75,19 @@ describe('live token mint decoder', () => {
       hasTransferHook: false,
       hasTransferFee: false,
       nonTransferable: false,
+    });
+  });
+
+  it('returns exact decimals, atomic supply, human supply, and token program for readiness', () => {
+    const mint = publicKey(8);
+    const details = decodeTokenMintDetails(mint, mintAccount(TOKEN_PROGRAM_ID));
+    expect(details).toMatchObject({
+      mintAddress: mint.toBase58(),
+      programId: TOKEN_PROGRAM_ID.toBase58(),
+      decimals: 6,
+      supplyAtomic: '1000000',
+      supplyTokens: '1',
+      safety: { program: 'LEGACY_SPL' },
     });
   });
 
