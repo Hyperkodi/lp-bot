@@ -26,6 +26,7 @@ describe('initial-liquidity planning service', () => {
     expect(report.strategyDecision.wideComparison).toHaveLength(3);
     expect(report.executionCapReadiness.status).toBe('BLOCKED_BY_CONFIGURED_CAPS');
     expect(report.executionCapReadiness.blockers).toHaveLength(3);
+    expect(report.binStepSensitivity.map((row) => row.binStepBps)).toEqual([10, 25, 50, 100, 200]);
     const spot = report.strategyDecision.wideComparison.find(
       (candidate) => candidate.distributionShape === 'SPOT',
     )!;

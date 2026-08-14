@@ -1,5 +1,6 @@
 import {
   compareInitialLiquidityPlans,
+  compareLaunchBinSteps,
   planInitialLiquidity,
   type LaunchPlanInput,
 } from '../strategy/launchPlanner.js';
@@ -45,6 +46,7 @@ export function planInitialLiquidityForLaunch(
   try {
     const plan = planInitialLiquidity(planningInput);
     const comparisons = compareInitialLiquidityPlans(planningInput);
+    const binStepSensitivity = compareLaunchBinSteps(planningInput);
     const executionCapReadiness = assessLaunchExecutionCaps(plan, executionCaps);
     const wideComparison = comparisons
       .filter((candidate) => candidate.fundedRange.totalBins === 69)
@@ -66,6 +68,7 @@ export function planInitialLiquidityForLaunch(
       defaults: DEFAULTS,
       plan,
       comparisons,
+      binStepSensitivity,
       executionCapReadiness,
       strategyDecision: {
         selected: 'SPOT_69',
@@ -74,6 +77,7 @@ export function planInitialLiquidityForLaunch(
           'Spot distributes liquidity uniformly instead of becoming thin near the sampled edges like Curve.',
           'Sixty-nine funded bins use nearly the full classic position and provide the widest tested price-discovery range.',
           'BidAsk is reserved for an explicit DCA or edge-liquidity objective; it contributes less liquidity at the opening price.',
+          'The provisional 50 bps bin step is a middle trade-off in the modeled 10-200 bps sensitivity set: smaller steps add opening depth but cover less price movement, while larger steps do the reverse.',
         ],
         wideComparison,
         evidenceLimit:

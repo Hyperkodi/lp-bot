@@ -259,3 +259,12 @@ does not fit the current placeholder caps of 10, 50, and 250 SOL. The Telegram
 plan reports each exceeded cap. Those caps must be deliberately approved from
 treasury policy; they must never be silently increased merely to make a launch
 pass.
+
+### Bin-step sensitivity
+
+The plan also models the same 69-bin Spot deposit at 10, 25, 50, 100, and 200
+bps bin steps. Under the provisional founder inputs, smaller steps provide much
+more opening depth but a narrow range; larger steps cover substantially more
+price discovery but reduce the amount a buyer can take near the opening price
+at 1% average impact. The 50 bps default is the middle planning trade-off, not
+a claim of optimality and not proof that a matching Standard preset exists.

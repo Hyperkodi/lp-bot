@@ -11,7 +11,10 @@
  */
 
 import type { LaunchExecutionCapReadiness } from '../strategy/launchExecutionCaps.js';
-import type { InitialLiquidityLaunchPlan } from '../strategy/launchPlanner.js';
+import type {
+  InitialLiquidityLaunchPlan,
+  LaunchBinStepSensitivity,
+} from '../strategy/launchPlanner.js';
 
 export type TenantRef = {
   tenantId: string;
@@ -141,6 +144,7 @@ export type InitialLiquidityPlanningReport = {
   };
   plan: InitialLiquidityLaunchPlan;
   comparisons: InitialLiquidityLaunchPlan[];
+  binStepSensitivity: LaunchBinStepSensitivity[];
   executionCapReadiness: LaunchExecutionCapReadiness;
   strategyDecision: {
     selected: 'SPOT_69';

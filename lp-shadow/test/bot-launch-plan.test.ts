@@ -19,6 +19,7 @@ describe('/launchplan read-only onboarding', () => {
     expect(result).toContain('DLMM_STANDARD_DUAL_SIDED');
     expect(result).toContain('Selected: Spot / 69');
     expect(result).toContain('Wide-shape trade-off');
+    expect(result).toContain('Bin-step trade-off');
     expect(result).toContain('0.0000131782698211 SOL/token');
     expect(result).toContain('Known SDK account rent');
     expect(result).toContain('Buyer capacity from this position only');

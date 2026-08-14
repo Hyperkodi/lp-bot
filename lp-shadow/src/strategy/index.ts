@@ -67,9 +67,12 @@ export {
   LAUNCH_PLAN_WIDTHS,
   BUYER_CAPACITY_IMPACT_BPS,
   DURABILITY_PRICE_CHANGES_PCT,
+  LAUNCH_BIN_STEP_SENSITIVITY_BPS,
+  compareLaunchBinSteps,
   compareInitialLiquidityPlans,
   planInitialLiquidity,
   type InitialLiquidityLaunchPlan,
+  type LaunchBinStepSensitivity,
   type LaunchPricePlan,
   type LaunchPlanInput,
 } from './launchPlanner.js';

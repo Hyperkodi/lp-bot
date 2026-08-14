@@ -19,6 +19,7 @@ import { estimateInitialLiquidityCost, type InitialLiquidityCostEstimate } from 
 export const LAUNCH_PLAN_WIDTHS = Object.freeze([15, 31, 51, 69]);
 export const BUYER_CAPACITY_IMPACT_BPS = Object.freeze([50, 100, 200, 500]);
 export const DURABILITY_PRICE_CHANGES_PCT = Object.freeze([-20, -15, -10, -5, 0, 5, 10, 15, 20]);
+export const LAUNCH_BIN_STEP_SENSITIVITY_BPS = Object.freeze([10, 25, 50, 100, 200]);
 export const LAUNCH_PLAN_SHAPES = Object.freeze<DistributionShape[]>([
   'SPOT',
   'CURVE',
@@ -123,6 +124,15 @@ export type InitialLiquidityLaunchPlan = {
     exits: false;
     laterAdditionsIncluded: false;
   };
+};
+
+export type LaunchBinStepSensitivity = {
+  binStepBps: number;
+  representedPriceSolPerToken: number;
+  activeBinId: number;
+  downsideCoveragePct: number;
+  upsideCoveragePct: number;
+  openingCapacityAtOnePctSol: number;
 };
 
 function finite(value: number, label: string): void {
@@ -360,4 +370,23 @@ export function compareInitialLiquidityPlans(
       planInitialLiquidity({ ...input, distributionShape, totalBins }),
     ),
   );
+}
+
+export function compareLaunchBinSteps(
+  input: LaunchPlanInput,
+  binSteps: readonly number[] = LAUNCH_BIN_STEP_SENSITIVITY_BPS,
+): LaunchBinStepSensitivity[] {
+  return binSteps.map((binStepBps) => {
+    const plan = planInitialLiquidity({ ...input, binStepBps });
+    return {
+      binStepBps,
+      representedPriceSolPerToken: plan.price.representedPriceSolPerToken,
+      activeBinId: plan.price.activeBinId,
+      downsideCoveragePct: plan.fundedRange.downsidePct * 100,
+      upsideCoveragePct: plan.fundedRange.upsidePct * 100,
+      openingCapacityAtOnePctSol: plan.buyer.averageImpactCapacity.find(
+        (point) => point.maxAverageImpactBps === 100,
+      )!.maxOrderSol,
+    };
+  });
 }

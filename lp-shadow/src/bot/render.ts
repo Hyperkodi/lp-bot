@@ -205,6 +205,11 @@ export function renderInitialLiquidityPlan(report: InitialLiquidityPlanningRepor
     `${numberFormatter.format(candidate.openingCapacityAtOnePctSol)} SOL`,
     `${numberFormatter.format(candidate.minimumSampledInRangeCapacityAtOnePctSol)} SOL`,
   ]);
+  const binStepRows = report.binStepSensitivity.map((candidate) => [
+    `${candidate.binStepBps} bps`,
+    `-${numberFormatter.format(candidate.downsideCoveragePct)}% / +${numberFormatter.format(candidate.upsideCoveragePct)}%`,
+    `${numberFormatter.format(candidate.openingCapacityAtOnePctSol)} SOL`,
+  ]);
   return [
     '<b>Initial liquidity plan — read only</b>',
     'This is a planning result, not a launch or transaction.',
@@ -228,6 +233,8 @@ export function renderInitialLiquidityPlan(report: InitialLiquidityPlanningRepor
     `<pre>${escapeHtml(plainTable(['Price', 'Order', 'Range'], durabilityRows))}</pre>`,
     '<b>Wide-shape trade-off at 1% average impact</b>',
     `<pre>${escapeHtml(plainTable(['Shape', 'Opening', 'Min sampled'], wideRows))}</pre>`,
+    '<b>Bin-step trade-off â€” modeled, not preset availability</b>',
+    `<pre>${escapeHtml(plainTable(['Step', 'Coverage', '1% opening'], binStepRows))}</pre>`,
     escapeHtml(report.strategyDecision.evidenceLimit),
     '<b>Still required</b>',
     ...report.blockers.map((blocker) => `• ${escapeHtml(blocker)}`),

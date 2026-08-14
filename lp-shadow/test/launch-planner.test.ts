@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  compareLaunchBinSteps,
   compareInitialLiquidityPlans,
   planInitialLiquidity,
   type LaunchPlanInput,
@@ -111,6 +112,21 @@ describe('initial-liquidity launch planner', () => {
     );
     expect(plans.every((plan) => plan.deposit.tokenAmount === launch.tokenAmount)).toBe(true);
     expect(plans.every((plan) => plan.deposit.positionSolAmount === launch.solAmount)).toBe(true);
+  });
+
+  it('shows the opening-depth versus coverage trade-off across bin steps', () => {
+    const sensitivity = compareLaunchBinSteps({
+      ...launch,
+      distributionShape: 'SPOT',
+      totalBins: 69,
+    });
+    expect(sensitivity.map((row) => row.binStepBps)).toEqual([10, 25, 50, 100, 200]);
+    expect(sensitivity.map((row) => row.upsideCoveragePct)).toEqual(
+      [...sensitivity.map((row) => row.upsideCoveragePct)].sort((a, b) => a - b),
+    );
+    expect(sensitivity.map((row) => row.openingCapacityAtOnePctSol)).toEqual(
+      [...sensitivity.map((row) => row.openingCapacityAtOnePctSol)].sort((a, b) => b - a),
+    );
   });
 
   it('rejects plans that cannot fit the classic position or have unsafe numeric inputs', () => {
