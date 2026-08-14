@@ -8,6 +8,7 @@ import {
 } from '../positionRange.js';
 import type { DistributionShape, PoolSnapshot } from '../types.js';
 import {
+  buyCapacityAtAverageImpact,
   buyDepthWithinPriceImpact,
   openPosition,
   simulateBuyerSwap,
@@ -15,6 +16,7 @@ import {
 import { estimateInitialLiquidityCost, type InitialLiquidityCostEstimate } from './launchCosts.js';
 
 export const LAUNCH_PLAN_WIDTHS = Object.freeze([15, 31, 51, 69]);
+export const BUYER_CAPACITY_IMPACT_BPS = Object.freeze([50, 100, 200, 500]);
 export const LAUNCH_PLAN_SHAPES = Object.freeze<DistributionShape[]>([
   'SPOT',
   'CURVE',
@@ -92,6 +94,12 @@ export type InitialLiquidityLaunchPlan = {
     depthWithinImpactUsd: number | null;
     estimatedBaseFeeSol: number;
     estimatedBaseFeeUsd: number | null;
+    averageImpactCapacity: Array<{
+      maxAverageImpactBps: number;
+      maxOrderSol: number;
+      maxOrderUsd: number | null;
+      actualImpactBps: number;
+    }>;
   };
   policy: {
     opensAtPoolCreation: true;
@@ -227,6 +235,19 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
     input.maxBuyerImpactBps,
   );
   const estimatedBaseFeeSol = buyer.filledQuoteUsd * input.baseFeeBps / 10_000;
+  const capacityImpactLimits = [...new Set([
+    ...BUYER_CAPACITY_IMPACT_BPS,
+    input.maxBuyerImpactBps,
+  ])].sort((a, b) => a - b);
+  const averageImpactCapacity = capacityImpactLimits.map((maxAverageImpactBps) => {
+    const capacity = buyCapacityAtAverageImpact(position, snapshot, maxAverageImpactBps);
+    return {
+      maxAverageImpactBps,
+      maxOrderSol: capacity.maxOrderQuote,
+      maxOrderUsd: usd(capacity.maxOrderQuote, input.solPriceUsd),
+      actualImpactBps: capacity.actualImpactBps,
+    };
+  });
 
   return {
     distributionShape: input.distributionShape,
@@ -272,6 +293,7 @@ export function planInitialLiquidity(input: LaunchPlanInput): InitialLiquidityLa
       depthWithinImpactUsd: usd(depthWithinImpactSol, input.solPriceUsd),
       estimatedBaseFeeSol,
       estimatedBaseFeeUsd: usd(estimatedBaseFeeSol, input.solPriceUsd),
+      averageImpactCapacity,
     },
     policy: {
       opensAtPoolCreation: true,

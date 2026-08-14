@@ -12,6 +12,7 @@ import { sdkExport } from '../src/poller/dlmmSdk.js';
 import type { CostInputs, DistributionShape, PoolSnapshot } from '../src/types.js';
 import {
   buyDepthWithinPriceImpact,
+  buyCapacityAtAverageImpact,
   distributeByShape,
   markPosition,
   openPosition,
@@ -114,6 +115,12 @@ describe('strategy distribution simulation', () => {
     expect(oversizedBuy.fillRate).toBeLessThan(1);
     expect(buyDepthWithinPriceImpact(position, snap, 100)).toBeGreaterThan(0);
     expect(buyDepthWithinPriceImpact(position, snap, 100)).toBeLessThanOrEqual(5_100);
+
+    const capacity = buyCapacityAtAverageImpact(position, snap, 20);
+    expect(capacity.maxOrderQuote).toBeGreaterThan(0);
+    expect(capacity.actualImpactBps).toBeLessThanOrEqual(20 + 1e-8);
+    const beyond = simulateBuyerSwap(position, snap, capacity.maxOrderQuote + 1);
+    expect(beyond.slippageBps).toBeGreaterThan(20);
   });
 });
 

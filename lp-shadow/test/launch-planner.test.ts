@@ -68,6 +68,18 @@ describe('initial-liquidity launch planner', () => {
     expect(plan.buyer.requestedUsd).toBe(1_000);
     expect(plan.buyer.depthWithinImpactSol).toBeGreaterThan(0);
     expect(plan.buyer.fillRate).toBeGreaterThan(0);
+    expect(plan.buyer.averageImpactCapacity.map((point) => point.maxAverageImpactBps)).toEqual([
+      50,
+      100,
+      200,
+      500,
+    ]);
+    expect(plan.buyer.averageImpactCapacity.every((point) => point.maxOrderSol > 0)).toBe(true);
+    expect(
+      plan.buyer.averageImpactCapacity.every(
+        (point, index, values) => index === 0 || point.maxOrderSol >= values[index - 1]!.maxOrderSol,
+      ),
+    ).toBe(true);
     expect(plan.policy).toEqual({
       opensAtPoolCreation: true,
       remainsDeposited: true,

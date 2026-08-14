@@ -18,8 +18,8 @@ Required:
   --bin-step <bps>       Meteora bin step in basis points
   --fee-bps <bps>        Pool base fee in basis points
   --sol-price <usd>      SOL/USD display price (required with --buyer-usd)
-  --buyer-usd <usd>      Largest launch buyer order to model
-    or --buyer-sol <sol> Model the buyer order directly in SOL
+  --buyer-usd <usd>      Optional buyer order to model
+    or --buyer-sol <sol> Optional buyer order directly in SOL
 
 Optional:
   --impact-bps <bps>     Acceptable modeled price impact (default: 100 = 1%)
@@ -66,6 +66,8 @@ function percent(value: number): string {
 }
 
 function comparisonTable(plans: InitialLiquidityLaunchPlan[]): string {
+  const onePercentCapacity = (plan: InitialLiquidityLaunchPlan) =>
+    plan.buyer.averageImpactCapacity.find((point) => point.maxAverageImpactBps === 100)!;
   const columns: [string, (plan: InitialLiquidityLaunchPlan) => string][] = [
     ['shape', (plan) => plan.distributionShape],
     ['bins', (plan) => String(plan.fundedRange.totalBins)],
@@ -74,8 +76,11 @@ function comparisonTable(plans: InitialLiquidityLaunchPlan[]): string {
     ['depth', (plan) => plan.buyer.depthWithinImpactUsd === null
       ? `${number(plan.buyer.depthWithinImpactSol, 4)} SOL`
       : money(plan.buyer.depthWithinImpactUsd)],
-    ['fill', (plan) => percent(plan.buyer.fillRate)],
-    ['impact', (plan) => `${plan.buyer.priceImpactBps.toFixed(1)} bps`],
+    ['avg<=1%', (plan) => onePercentCapacity(plan).maxOrderUsd === null
+      ? `${number(onePercentCapacity(plan).maxOrderSol, 4)} SOL`
+      : money(onePercentCapacity(plan).maxOrderUsd)],
+    ['fill', (plan) => plan.buyer.requestedSol > 0 ? percent(plan.buyer.fillRate) : 'n/a'],
+    ['impact', (plan) => plan.buyer.requestedSol > 0 ? `${plan.buyer.priceImpactBps.toFixed(1)} bps` : 'n/a'],
   ];
   const widths = columns.map(([heading, render]) =>
     Math.max(heading.length, ...plans.map((plan) => render(plan).length)),
@@ -133,15 +138,27 @@ function printSingle(plan: InitialLiquidityLaunchPlan): void {
   process.stdout.write(
     `Minimum wallet with known account rent: ${number(plan.creationCost.minimumWalletSolWithKnownAccountRent, 9)} SOL, plus network/priority fees and any conditional account rent\n`,
   );
+  if (plan.buyer.requestedSol > 0) {
+    process.stdout.write(
+      `Modeled buyer: ${number(plan.buyer.requestedSol, 4)} SOL requested, ${percent(plan.buyer.fillRate)} filled, ${plan.buyer.priceImpactBps.toFixed(1)} bps average impact\n`,
+    );
+  } else {
+    process.stdout.write('Modeled buyer: no single order supplied; use the capacity curve below.\n');
+  }
   process.stdout.write(
-    `Modeled buyer: ${number(plan.buyer.requestedSol, 4)} SOL requested, ${percent(plan.buyer.fillRate)} filled, ${plan.buyer.priceImpactBps.toFixed(1)} bps average impact\n`,
+    `Depth before marginal price exceeds the impact limit: ${number(plan.buyer.depthWithinImpactSol, 4)} SOL (${money(plan.buyer.depthWithinImpactUsd)})\n`,
   );
-  process.stdout.write(
-    `Depth within the impact limit: ${number(plan.buyer.depthWithinImpactSol, 4)} SOL (${money(plan.buyer.depthWithinImpactUsd)})\n`,
-  );
-  process.stdout.write(
-    `Estimated base fee on the modeled fill: ${number(plan.buyer.estimatedBaseFeeSol, 6)} SOL (${money(plan.buyer.estimatedBaseFeeUsd)})\n`,
-  );
+  if (plan.buyer.requestedSol > 0) {
+    process.stdout.write(
+      `Estimated base fee on the modeled fill: ${number(plan.buyer.estimatedBaseFeeSol, 6)} SOL (${money(plan.buyer.estimatedBaseFeeUsd)})\n`,
+    );
+  }
+  process.stdout.write('Buyer capacity by maximum average impact:\n');
+  for (const point of plan.buyer.averageImpactCapacity) {
+    process.stdout.write(
+      `  ${(point.maxAverageImpactBps / 100).toFixed(2)}%: ${number(point.maxOrderSol, 4)} SOL (${money(point.maxOrderUsd)})\n`,
+    );
+  }
 }
 
 function main(): void {
@@ -172,9 +189,6 @@ function main(): void {
   if (values['buyer-usd'] !== undefined && values['buyer-sol'] !== undefined) {
     throw new Error('use either --buyer-usd or --buyer-sol, not both');
   }
-  if (values['buyer-usd'] === undefined && values['buyer-sol'] === undefined) {
-    throw new Error('missing --buyer-usd or --buyer-sol');
-  }
   if ((values.shape === undefined) !== (values.bins === undefined)) {
     throw new Error('--shape and --bins must be supplied together');
   }
@@ -187,7 +201,9 @@ function main(): void {
     }
     buyerOrderSol = numeric(values['buyer-usd'], 'buyer-usd') / solPriceUsd;
   } else {
-    buyerOrderSol = numeric(values['buyer-sol'], 'buyer-sol');
+    buyerOrderSol = values['buyer-sol'] === undefined
+      ? 0
+      : numeric(values['buyer-sol'], 'buyer-sol');
   }
 
   const input: LaunchPlanInput = {
@@ -220,11 +236,15 @@ function main(): void {
   printOpening(plans[0]!);
   process.stdout.write('Same permanent deposit, compared across the 12 tested recipe families:\n');
   process.stdout.write(`${comparisonTable(plans)}\n\n`);
+  const capacityAtRequestedImpact = (plan: InitialLiquidityLaunchPlan) =>
+    plan.buyer.averageImpactCapacity.find(
+      (point) => point.maxAverageImpactBps === input.maxBuyerImpactBps,
+    )!.maxOrderSol;
   const deepest = [...plans].sort(
-    (a, b) => b.buyer.depthWithinImpactSol - a.buyer.depthWithinImpactSol,
+    (a, b) => capacityAtRequestedImpact(b) - capacityAtRequestedImpact(a),
   )[0]!;
   process.stdout.write(
-    `Highest modeled opening depth: ${deepest.distributionShape}/${deepest.fundedRange.totalBins} bins. ` +
+    `Highest modeled order capacity at ${(input.maxBuyerImpactBps / 100).toFixed(2)}% average impact: ${deepest.distributionShape}/${deepest.fundedRange.totalBins} bins. ` +
     'This is a trade-off comparison, not a production winner.\n',
   );
   process.stdout.write('Depth and impact include only this position; routing, other LPs, dynamic fees, and market reaction are excluded.\n');

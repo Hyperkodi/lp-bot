@@ -145,7 +145,7 @@ The inputs mean:
 4. total token supply, used to calculate implied FDV;
 5. current SOL/USD display price (entered explicitly; the command does not
    fetch a live price);
-6. largest buyer order that should clear near launch;
+6. optional buyer order to inspect near launch;
 7. acceptable modeled price impact for that order (`100` bps is 1%);
 8. chosen pool bin step and base fee.
 
@@ -179,6 +179,10 @@ transaction. Mint addresses, the real token decimal count, wallet addresses,
 and a fresh wallet balance are required before it can be created.
 
 The comparison models buyer depth contributed by this initial position only.
+If buyer size is unknown, omit both buyer flags. The planner then reports the
+maximum fully filled order supported at 0.5%, 1%, 2%, and 5% modeled average
+price impact. This capacity curve is more honest than inventing one buyer; a
+specific buyer flag simply adds a point simulation alongside the curve.
 It excludes other LPs, routing, dynamic fees, and market reaction, so it is a
 planning aid rather than an executable quote or a production winner. Rules for
 adding liquidity later remain a separate policy and do not weaken the

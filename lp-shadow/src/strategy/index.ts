@@ -65,6 +65,7 @@ export {
 export {
   LAUNCH_PLAN_SHAPES,
   LAUNCH_PLAN_WIDTHS,
+  BUYER_CAPACITY_IMPACT_BPS,
   compareInitialLiquidityPlans,
   planInitialLiquidity,
   type InitialLiquidityLaunchPlan,

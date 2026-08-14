@@ -360,6 +360,83 @@ export function buyDepthWithinPriceImpact(
   }, 0);
 }
 
+export type BuyerAverageImpactCapacity = {
+  maxAverageImpactBps: number;
+  maxOrderQuote: number;
+  baseReceived: number;
+  averagePrice: number | null;
+  actualImpactBps: number;
+};
+
+/**
+ * Maximum fully filled buyer order whose average execution price stays within
+ * the requested impact. Unlike `buyDepthWithinPriceImpact`, this can consume a
+ * partial final bin and measures the average paid across the whole order.
+ */
+export function buyCapacityAtAverageImpact(
+  position: VirtualPosition,
+  snapshot: PoolSnapshot,
+  maxAverageImpactBps: number,
+): BuyerAverageImpactCapacity {
+  if (!Number.isFinite(maxAverageImpactBps) || maxAverageImpactBps < 0) {
+    throw new Error('maximum average price impact must be finite and non-negative');
+  }
+  if (position.status === 'EXITED' || !(snapshot.activePrice > 0)) {
+    return {
+      maxAverageImpactBps,
+      maxOrderQuote: 0,
+      baseReceived: 0,
+      averagePrice: null,
+      actualImpactBps: 0,
+    };
+  }
+  const totalSellCapacity = position.bins.reduce((total, bin) => {
+    if (bin.binId < snapshot.activeBinId || bin.base <= 0) return total;
+    return total + bin.base * binPrice(
+      bin.binId,
+      snapshot.activeBinId,
+      snapshot.activePrice,
+      snapshot.binStepBps,
+    );
+  }, 0);
+  if (!(totalSellCapacity > 0)) {
+    return {
+      maxAverageImpactBps,
+      maxOrderQuote: 0,
+      baseReceived: 0,
+      averagePrice: null,
+      actualImpactBps: 0,
+    };
+  }
+  const full = simulateBuyerSwap(position, snapshot, totalSellCapacity);
+  if (full.slippageBps <= maxAverageImpactBps) {
+    return {
+      maxAverageImpactBps,
+      maxOrderQuote: full.filledQuoteUsd,
+      baseReceived: full.baseReceived,
+      averagePrice: full.averagePrice,
+      actualImpactBps: full.slippageBps,
+    };
+  }
+
+  let low = 0;
+  let high = totalSellCapacity;
+  for (let iteration = 0; iteration < 80; iteration += 1) {
+    const middle = (low + high) / 2;
+    const simulated = simulateBuyerSwap(position, snapshot, middle);
+    if (simulated.slippageBps <= maxAverageImpactBps) low = middle;
+    else high = middle;
+  }
+  const result = simulateBuyerSwap(position, snapshot, low);
+  return {
+    maxAverageImpactBps,
+    maxOrderQuote: result.filledQuoteUsd,
+    baseReceived: result.baseReceived,
+    averagePrice: result.averagePrice,
+    actualImpactBps: result.slippageBps,
+  };
+}
+
 /**
  * DLMM pays swap fees only to liquidity in the active bin, so our take is our
  * share of that bin (§9).
