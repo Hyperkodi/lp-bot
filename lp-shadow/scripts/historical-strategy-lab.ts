@@ -8,6 +8,13 @@ import {
   fillOhlcvGaps,
   historicalScenarioFromOhlcv,
   lockTreasuryCandidate,
+  lockPolicyCandidate,
+  rankPolicyCandidates,
+  runPolicyCandidate,
+  evaluatePolicyCandidate,
+  type ExperimentalPolicyScore,
+  type ExperimentalPolicyScenarioResult,
+  type ExperimentalPolicyCandidate,
   type ProfileScenarioResult,
   type StrategyScenario,
   type TreasuryCandidateScore,
@@ -107,6 +114,53 @@ function printTuning(scores: TreasuryCandidateScore[], holdout: TreasuryCandidat
   );
 }
 
+function printPolicyExperiment(
+  scores: ExperimentalPolicyScore[],
+  holdout: ExperimentalPolicyScore,
+  holdoutRows: ExperimentalPolicyScenarioResult[],
+  ablations: ExperimentalPolicyScore[],
+  loaded: LoadedLaunch[],
+) {
+  process.stdout.write('\nStructural policy experiment — top 10 training candidates of 64:\n');
+  printTable([
+    ['delay', (row) => `${row.candidate.entryDelayHours}h`],
+    ['inventory', (row) => row.candidate.inventory],
+    ['exit', (row) => row.candidate.exit],
+    ['median net/HODL', (row) => row.medianNetVsHodlUsd.toFixed(0)],
+    ['average', (row) => row.averageNetVsHodlUsd.toFixed(0)],
+    ['worst', (row) => row.worstNetVsHodlUsd.toFixed(0)],
+    ['max DD', (row) => `${(row.averageMaxDrawdownPct * 100).toFixed(1)}%`],
+    ['fees', (row) => row.averageFeesUsd.toFixed(0)],
+    ['exited', (row) => `${(row.exitRate * 100).toFixed(0)}%`],
+  ], rankPolicyCandidates(scores).slice(0, 10));
+  process.stdout.write(
+    `\nLocked ${holdout.candidate.name} before holdout: ` +
+    `median net/HODL ${holdout.medianNetVsHodlUsd.toFixed(0)}, ` +
+    `average ${holdout.averageNetVsHodlUsd.toFixed(0)}, ` +
+    `worst ${holdout.worstNetVsHodlUsd.toFixed(0)}, ` +
+    `average max DD ${(holdout.averageMaxDrawdownPct * 100).toFixed(1)}%, ` +
+    `exit rate ${(holdout.exitRate * 100).toFixed(0)}%.\n`,
+  );
+  const launchByName = new Map(loaded.map((launch) => [launch.name, launch]));
+  process.stdout.write('\nLocked policy by holdout launch:\n');
+  printTable([
+    ['stratum', (row) => launchByName.get(row.scenario)?.stratum ?? '?'],
+    ['launch', (row) => row.scenario],
+    ['net/HODL', (row) => row.replay.netVsHodlUsd.toFixed(0)],
+    ['max DD', (row) => `${(row.replay.maxDrawdownPct * 100).toFixed(1)}%`],
+    ['fees', (row) => row.replay.totalFeesUsd.toFixed(0)],
+    ['exited', (row) => row.replay.exited ? 'yes' : 'no'],
+  ], holdoutRows);
+  process.stdout.write('\nHoldout component ablations (same launch-time benchmark):\n');
+  printTable([
+    ['candidate', (row) => row.candidate.name],
+    ['median net/HODL', (row) => row.medianNetVsHodlUsd.toFixed(0)],
+    ['average', (row) => row.averageNetVsHodlUsd.toFixed(0)],
+    ['worst', (row) => row.worstNetVsHodlUsd.toFixed(0)],
+    ['max DD', (row) => `${(row.averageMaxDrawdownPct * 100).toFixed(1)}%`],
+  ], ablations);
+}
+
 async function main() {
   process.stdout.write('Historical strategy lab — frozen 24-launch Meteora stress cohort\n');
   process.stdout.write('Fetching each pool\'s first 72 hours of 30-minute OHLCV...\n');
@@ -147,11 +201,35 @@ async function main() {
   const holdout = evaluateTreasuryCandidate(params, cohortScenarios('HOLDOUT'), locked.candidate);
   printTuning(locked.trainingScores, holdout);
 
+  const lockedPolicy = lockPolicyCandidate(params, cohortScenarios('TRAINING'));
+  const policyHoldout = evaluatePolicyCandidate(
+    params,
+    cohortScenarios('HOLDOUT'),
+    lockedPolicy.candidate,
+  );
+  const holdoutPolicyScenarios = cohortScenarios('HOLDOUT');
+  const ablationCandidates: ExperimentalPolicyCandidate[] = [
+    { ...lockedPolicy.candidate, name: 'locked' },
+    { ...lockedPolicy.candidate, name: 'no-delay', entryDelayHours: 0 },
+    { ...lockedPolicy.candidate, name: 'no-explicit-exit', exit: 'NONE' },
+    { ...lockedPolicy.candidate, name: 'balanced-inventory', inventory: 'BALANCED' },
+  ];
+  printPolicyExperiment(
+    lockedPolicy.trainingScores,
+    policyHoldout,
+    runPolicyCandidate(params, holdoutPolicyScenarios, lockedPolicy.candidate),
+    ablationCandidates.map((candidate) =>
+      evaluatePolicyCandidate(params, holdoutPolicyScenarios, candidate),
+    ),
+    loaded,
+  );
+
   process.stdout.write('\nEvidence boundary:\n');
   process.stdout.write('- Prices and volumes are observed Meteora candles; intracandle paths are unavailable.\n');
   process.stdout.write('- Missing intervals after the first trade are modeled as flat, zero-volume inactivity.\n');
   process.stdout.write('- Historical TVL, per-bin liquidity, dynamic fees, and Jupiter routes are unavailable.\n');
   process.stdout.write('- Fees use volume × base fee; liquidity uses fixed modeled TVL; swaps use 50 bps impact.\n');
+  process.stdout.write('- Structural policies charge 50 bps on starting cash converted into base at entry.\n');
   process.stdout.write('- The stress cohort is outcome-stratified and not a representative population estimate.\n');
   process.stdout.write('- The locked candidate remains experimental; this command does not change production profiles.\n');
 }

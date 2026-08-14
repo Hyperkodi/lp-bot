@@ -38,3 +38,16 @@ export {
   type TreasuryCandidateScore,
   type TreasuryQuoteCandidate,
 } from './tuning.js';
+export {
+  evaluatePolicyCandidate,
+  experimentalPolicyCandidates,
+  lockPolicyCandidate,
+  rankPolicyCandidates,
+  runPolicyCandidate,
+  selectPolicyCandidate,
+  type ExperimentalExit,
+  type ExperimentalInventory,
+  type ExperimentalPolicyCandidate,
+  type ExperimentalPolicyScore,
+  type ExperimentalPolicyScenarioResult,
+} from './policyTuning.js';

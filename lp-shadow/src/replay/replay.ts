@@ -39,7 +39,13 @@ import type {
   PoolSnapshot,
   VirtualPosition,
 } from '../types.js';
-import { creditFullRangeFees, initBenchmarks, markBenchmarks } from '../virtual/benchmarks.js';
+import {
+  creditFullRangeFees,
+  fullRangeValue,
+  hodlValue,
+  initBenchmarks,
+  markBenchmarks,
+} from '../virtual/benchmarks.js';
 import {
   accrueFees,
   applyCompound,
@@ -93,6 +99,19 @@ export type Variant = {
   profileSlug?: string;
   defaultBinStepBps?: number;
   inventoryPolicy?: InventoryPolicy;
+  /** Replay-only wait from pool creation before opening a position. */
+  entryDelayHours?: number;
+  /** Anchor HODL/full-range at the first scenario observation while cash waits. */
+  benchmarkAtScenarioStart?: boolean;
+  /** Replay-only cost charged when converting starting cash into base at entry. */
+  entryCostUsd?: number;
+  /** Replay-only risk exits. The shipping engine's low-volume exit is separate. */
+  explicitExitPolicy?: {
+    stopLossPct?: number;
+    trailingDrawdownPct?: number;
+    maxHoldHours?: number;
+    target: 'BALANCED' | 'QUOTE';
+  };
 };
 
 export function loadVariants(base: RawConfig, paramsFile: string | undefined, label?: string): Variant[] {
@@ -196,6 +215,27 @@ export type ReplayResult = {
 /** Pure over its inputs: same snapshots + same params => same result. */
 export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayResult {
   const params = variant.params;
+  if (!Number.isFinite(variant.entryDelayHours ?? 0) || (variant.entryDelayHours ?? 0) < 0) {
+    throw new Error('replay entry delay must be finite and non-negative');
+  }
+  if (!Number.isFinite(variant.entryCostUsd ?? 0) || (variant.entryCostUsd ?? 0) < 0) {
+    throw new Error('replay entry cost must be finite and non-negative');
+  }
+  const explicitExitPolicy = variant.explicitExitPolicy;
+  for (const value of [
+    explicitExitPolicy?.stopLossPct,
+    explicitExitPolicy?.trailingDrawdownPct,
+  ]) {
+    if (value !== undefined && (!Number.isFinite(value) || value <= 0 || value >= 1)) {
+      throw new Error('replay exit percentages must be between zero and one');
+    }
+  }
+  if (
+    explicitExitPolicy?.maxHoldHours !== undefined &&
+    (!Number.isFinite(explicitExitPolicy.maxHoldHours) || explicitExitPolicy.maxHoldHours <= 0)
+  ) {
+    throw new Error('replay maximum hold must be positive');
+  }
   let regime = initRegimeState();
   let position: VirtualPosition | null = null;
   let benchmarks = null as ReturnType<typeof initBenchmarks> | null;
@@ -207,6 +247,7 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
   let suppressedRebalances = 0;
   let rangeBinsTotal = 0;
   let peakNavUsd = 0;
+  let explicitExitPeakNavUsd = 0;
   let maxDrawdownPct = 0;
   let finalBaseSharePct = 0;
   let cumulativeQuoteConvertedToBaseUsd = 0;
@@ -224,31 +265,58 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
   const poolCreatedAtMs = variant.poolCreatedAtMs ?? stored[0]?.snapshot.ts;
   const buyerOrderUsd = params.virtualNavUsd * 0.1;
   const initialQuoteAtRiskUsd = params.virtualNavUsd * inventoryPolicy.deployedQuoteShare;
+  const entryNotBeforeMs =
+    poolCreatedAtMs === undefined
+      ? Number.NEGATIVE_INFINITY
+      : poolCreatedAtMs + (variant.entryDelayHours ?? 0) * 60 * 60_000;
 
   for (const { snapshot, costInputs, id } of stored) {
     const updated = updateRegime(regime, snapshot, params);
     regime = updated.state;
     const signals = updated.signals;
+    let benchmarkCredited = false;
+
+    if (benchmarks === null && variant.benchmarkAtScenarioStart) {
+      benchmarks = initBenchmarks(snapshot, params.virtualNavUsd);
+    }
+    if (benchmarks !== null && variant.benchmarkAtScenarioStart) {
+      benchmarks = creditFullRangeFees(benchmarks, snapshot);
+      benchmarkCredited = true;
+    }
 
     if (position === null) {
-      if (!signals.volReliable) continue;
+      if (!signals.volReliable || snapshot.ts < entryNotBeforeMs) {
+        if (benchmarks) {
+          lastMarks = {
+            hodlNavUsd: hodlValue(benchmarks, snapshot.activePrice),
+            fullRangeUsd:
+              fullRangeValue(benchmarks, snapshot.activePrice) + benchmarks.fullRangeFees,
+            strategyUsd: params.virtualNavUsd,
+          };
+        }
+        continue;
+      }
       const plan = planRange(snapshot.activeBinId, snapshot.binStepBps, signals, params);
       position = openPosition(
         snapshot,
         plan.lowerBinId,
         plan.upperBinId,
-        params.virtualNavUsd,
+        Math.max(0, params.virtualNavUsd - (variant.entryCostUsd ?? 0)),
         distributionShape,
         inventoryPolicy,
       );
-      benchmarks = initBenchmarks(snapshot, params.virtualNavUsd);
+      position = {
+        ...position,
+        cumCostsQuote: position.cumCostsQuote + (variant.entryCostUsd ?? 0),
+      };
+      benchmarks ??= initBenchmarks(snapshot, params.virtualNavUsd);
     }
 
     const deployedQuoteBeforeMark = position.quote;
     position = markPosition(position, snapshot);
     cumulativeQuoteConvertedToBaseUsd += Math.max(0, deployedQuoteBeforeMark - position.quote);
     position = accrueFees(position, snapshot).position;
-    if (benchmarks) benchmarks = creditFullRangeFees(benchmarks, snapshot);
+    if (benchmarks && !benchmarkCredited) benchmarks = creditFullRangeFees(benchmarks, snapshot);
 
     ticks += 1;
     rangeBinsTotal += position.upperBinId - position.lowerBinId + 1;
@@ -260,18 +328,52 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
       inRangeTicks += 1;
     }
 
-    const rawDecision = decide(snapshot, position, signals, params, costInputs);
-    const guarded =
-      variant.launchGuardHours === undefined || poolCreatedAtMs === undefined
+    const navBeforeDecision = positionNavUsd(position, snapshot);
+    explicitExitPeakNavUsd = Math.max(explicitExitPeakNavUsd, navBeforeDecision);
+    let explicitExitReason: string | null = null;
+    if (position.status === 'ACTIVE' && explicitExitPolicy) {
+      if (
+        explicitExitPolicy.stopLossPct !== undefined &&
+        navBeforeDecision <= params.virtualNavUsd * (1 - explicitExitPolicy.stopLossPct)
+      ) {
+        explicitExitReason = `stop loss ${(explicitExitPolicy.stopLossPct * 100).toFixed(0)}%`;
+      } else if (
+        explicitExitPolicy.trailingDrawdownPct !== undefined &&
+        explicitExitPeakNavUsd > 0 &&
+        navBeforeDecision <= explicitExitPeakNavUsd * (1 - explicitExitPolicy.trailingDrawdownPct)
+      ) {
+        explicitExitReason =
+          `trailing drawdown ${(explicitExitPolicy.trailingDrawdownPct * 100).toFixed(0)}%`;
+      } else if (
+        explicitExitPolicy.maxHoldHours !== undefined &&
+        snapshot.ts - position.openedAt >= explicitExitPolicy.maxHoldHours * 60 * 60_000
+      ) {
+        explicitExitReason = `maximum hold ${explicitExitPolicy.maxHoldHours}h`;
+      }
+    }
+
+    const rawDecision = explicitExitReason === null
+      ? decide(snapshot, position, signals, params, costInputs)
+      : null;
+    const guarded = rawDecision === null
+      ? null
+      : variant.launchGuardHours === undefined || poolCreatedAtMs === undefined
         ? { decision: rawDecision, suppressedDecision: null }
         : applyLaunchGuard(rawDecision, {
             poolCreatedAtMs,
             nowMs: snapshot.ts,
             launchGuardHours: variant.launchGuardHours,
           });
-    const decision = guarded.decision;
-    if (guarded.suppressedDecision?.kind === 'REBALANCE') suppressedRebalances += 1;
-    switch (decision.kind) {
+    const decision = guarded?.decision;
+    if (guarded?.suppressedDecision?.kind === 'REBALANCE') suppressedRebalances += 1;
+    if (explicitExitReason !== null) {
+      position = applyExit(
+        position,
+        snapshot,
+        estimateCost('EXIT', costInputs, params),
+        explicitExitPolicy!.target,
+      );
+    } else switch (decision!.kind) {
       case 'COMPOUND':
         position = applyCompound(
           position,
@@ -286,16 +388,16 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
         position = applyRebalance(
           position,
           snapshot,
-          decision.newLowerBin,
-          decision.newUpperBin,
-          decision.costEst,
+          decision!.newLowerBin,
+          decision!.newUpperBin,
+          decision!.costEst,
           distributionShape,
           inventoryPolicy,
         );
         rebalances += 1;
         break;
       case 'EXIT':
-        position = applyExit(position, snapshot, decision.costEst);
+        position = applyExit(position, snapshot, decision!.costEst);
         break;
       case 'HOLD':
         break;
@@ -325,21 +427,30 @@ export function runVariant(variant: Variant, stored: StoredSnapshot[]): ReplayRe
     }
     buyerOrderFillRateTotal += buyerSwap.fillRate;
 
-    if (guarded.suppressedDecision?.kind === 'REBALANCE') {
+    if (explicitExitReason !== null) {
+      events.push({
+        ts: snapshot.ts,
+        snapshotId: id,
+        kind: 'EXPLICIT_EXIT',
+        reasons: [explicitExitReason],
+        navUsd,
+        hodlUsd: lastMarks.hodlNavUsd,
+      });
+    } else if (guarded?.suppressedDecision?.kind === 'REBALANCE') {
       events.push({
         ts: snapshot.ts,
         snapshotId: id,
         kind: 'SUPPRESSED_REBALANCE',
-        reasons: decision.reasons,
+        reasons: decision!.reasons,
         navUsd,
         hodlUsd: lastMarks.hodlNavUsd,
       });
-    } else if (decision.kind !== 'HOLD') {
+    } else if (decision!.kind !== 'HOLD') {
       events.push({
         ts: snapshot.ts,
         snapshotId: id,
-        kind: decision.kind,
-        reasons: decision.reasons,
+        kind: decision!.kind,
+        reasons: decision!.reasons,
         navUsd,
         hodlUsd: lastMarks.hodlNavUsd,
       });

@@ -486,6 +486,7 @@ export function applyExit(
   position: VirtualPosition,
   snapshot: PoolSnapshot,
   costEst: CostEstimate,
+  target: 'BALANCED' | 'QUOTE' = 'BALANCED',
 ): VirtualPosition {
   const value = Math.max(
     0,
@@ -497,8 +498,8 @@ export function applyExit(
     ...position,
     status: 'EXITED',
     bins: [],
-    base: snapshot.activePrice > 0 ? value / 2 / snapshot.activePrice : 0,
-    quote: value / 2,
+    base: target === 'BALANCED' && snapshot.activePrice > 0 ? value / 2 / snapshot.activePrice : 0,
+    quote: target === 'QUOTE' ? value : value / 2,
     reserveQuote: 0,
     pendingFeesQuote: 0,
     cumCostsQuote: position.cumCostsQuote + costEst.totalUsd,

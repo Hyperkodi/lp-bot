@@ -194,6 +194,53 @@ describe('profile-aware replay inputs', () => {
     expect(result.events.some((event) => event.kind === 'SUPPRESSED_REBALANCE')).toBe(true);
   });
 
+  it('holds cash until a delayed entry while keeping the benchmark anchored at scenario start', () => {
+    const params = { ...baseline, volMinSamples: 1, volTvlFloor: 0 };
+    const rows = [100, 110, 120, 130, 140].map((activePrice, index) => stored(index, {
+      ts: index * 60 * 60_000,
+      activePrice,
+      activeBinId: index * 10,
+    }));
+    const immediate = runVariant({
+      name: 'immediate',
+      params,
+      benchmarkAtScenarioStart: true,
+      poolCreatedAtMs: 0,
+    }, rows);
+    const delayed = runVariant({
+      name: 'delayed',
+      params,
+      benchmarkAtScenarioStart: true,
+      entryDelayHours: 3,
+      entryCostUsd: 25,
+      poolCreatedAtMs: 0,
+    }, rows);
+
+    expect(delayed.ticks).toBeLessThan(immediate.ticks);
+    expect(delayed.hodlNavUsd).toBeCloseTo(immediate.hodlNavUsd, 8);
+    expect(delayed.totalCostsUsd).toBeGreaterThanOrEqual(25);
+  });
+
+  it('applies an experimental stop loss by exiting fully to quote', () => {
+    const params = { ...baseline, volMinSamples: 1, volTvlFloor: 0 };
+    const rows = [100, 100, 60, 50].map((activePrice, index) => stored(index, {
+      ts: index * 60 * 60_000,
+      activePrice,
+      activeBinId: -index * 100,
+    }));
+    const result = runVariant({
+      name: 'stop-loss',
+      params,
+      benchmarkAtScenarioStart: true,
+      explicitExitPolicy: { stopLossPct: 0.1, target: 'QUOTE' },
+      poolCreatedAtMs: 0,
+    }, rows);
+
+    expect(result.exited).toBe(true);
+    expect(result.finalBaseSharePct).toBe(0);
+    expect(result.events.some((event) => event.kind === 'EXPLICIT_EXIT')).toBe(true);
+  });
+
   it('evaluates every profile across the deterministic stress suite without declaring synthetic data proof', () => {
     const scenarios = syntheticStrategyScenarios();
     const results = evaluateProfiles(baseline, scenarios);

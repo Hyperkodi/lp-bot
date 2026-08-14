@@ -9,8 +9,9 @@ pnpm strategy:historical
 The command fetches each fixed pool's first 72 hours of 30-minute OHLCV from
 Meteora, evaluates the three unchanged built-in profiles, selects one Treasury
 Defensive quote-exposure candidate using training launches only, and then
-scores that locked candidate once on holdout. It does not build transactions,
-sign, send, or change a production profile.
+scores that locked candidate once on holdout. It also tests 64 structural
+combinations of delayed entry, one-sided inventory, and explicit exit rules.
+It does not build transactions, sign, send, or change a production profile.
 
 ## Frozen stress cohort
 
@@ -51,6 +52,7 @@ Explicit models where public historical observations are unavailable:
 - omitted intervals after the first observation use the previous close and zero
   volume;
 - rebalance swaps use a 50 bps impact input;
+- structural policies charge 50 bps on starting cash converted into base;
 - only 30-minute closes are replayed, not intracandle paths.
 
 Historical TVL, per-bin liquidity, dynamic fees, and Jupiter routes are not
@@ -104,14 +106,68 @@ quote is effectively a capital-preservation control, and it still trails HODL
 on the median holdout launch. The built-in 15% Treasury Defensive profile is
 unchanged.
 
+## Structural policy experiment
+
+This experiment crosses:
+
+- entry after 0, 12, 24, or 36 hours;
+- balanced, quote-only, base-only, or 50%-base/50%-quote-reserve inventory;
+- no explicit exit, a 20% stop loss, a 20% trailing drawdown exit, or a
+  48-hour maximum hold.
+
+All explicit exits liquidate to quote. The shipping engine's volume/TVL exit is
+disabled for this isolated comparison. Unlike the earlier profile table, every
+structural candidate is measured against HODL established at the first scenario
+candle: capital remains in quote while entry is delayed. Starting base is
+charged the configured 50 bps fallback impact, but historical executable route
+depth remains unavailable.
+
+Training ranked all 64 candidates using median net versus HODL, worst launch,
+drawdown, mean, fees, and a deterministic name tie-break. The leading rows were:
+
+| Delay | Inventory | Exit | Training median net vs HODL | Training average | Training worst | Average max drawdown |
+| ---: | --- | --- | ---: | ---: | ---: | ---: |
+| 36h | 50% base / 50% reserve | 20% trailing | +$1,657 | -$10,629 | -$119,271 | 15.5% |
+| 36h | 50% base / 50% reserve | 20% stop | +$1,398 | -$10,776 | -$119,271 | 16.9% |
+| 24h | 50% base / 50% reserve | 20% trailing | +$1,296 | -$11,174 | -$121,954 | 19.2% |
+| 24h | 50% base / 50% reserve | 20% stop | +$1,199 | -$11,253 | -$121,954 | 20.2% |
+
+The first row was locked before holdout:
+
+| Holdout slice | Median net vs HODL | Average net vs HODL | Worst launch |
+| --- | ---: | ---: | ---: |
+| All 12 launches | +$953 | -$14,884 | -$176,695 |
+| Four crash launches | +$3,511 | +$3,651 | +$2,832 |
+| Four middle launches | +$953 | +$418 | -$2,591 |
+| Four winner launches | -$6,727 | -$48,722 | -$176,695 |
+
+Its average holdout max drawdown was 14.3%, and it exited six of twelve
+launches. It beat launch-time HODL on all four crashes and three of four middle
+launches. It lagged HODL on every winner because waiting 36 hours, holding half
+the capital in reserve, and exiting on drawdown all surrender upside. STONK's
+roughly 35x path accounts for the -$176,695 worst result.
+
+Component ablations on the same holdout launches:
+
+| Policy | Median net vs HODL | Average | Worst | Average max drawdown |
+| --- | ---: | ---: | ---: | ---: |
+| Locked policy | +$953 | -$14,884 | -$176,695 | 14.3% |
+| Enter immediately | +$350 | -$15,345 | -$176,044 | 21.5% |
+| No explicit exit | +$900 | -$14,228 | -$172,940 | 15.9% |
+| Balanced inventory | +$644 | -$15,203 | -$178,285 | 17.8% |
+
+The 36-hour wait and one-sided base/reserve structure generalized usefully.
+The trailing exit reduced drawdown and slightly improved the median, but harmed
+the average and worst benchmark regret compared with no explicit exit. This is
+a research candidate for broader validation, not approval evidence.
+
 ## Next evidence step
 
 1. Repeat the frozen-cohort method across older launch periods and non-SOL quote
    assets so one market window cannot dominate the conclusion.
 2. Capture live full-bin state and exact-pool Jupiter quotes repeatedly to
    replace modeled TVL, liquidity, and impact with observed execution evidence.
-3. Test structurally different policies, including delayed entry, one-sided
-   inventory, and explicit exit rules; quote-exposure tuning alone did not find
-   a viable LP candidate.
-4. Shadow any surviving candidate version before considering a production
+3. Repeat the structural grid on the broader periods and observed execution
+   inputs. Treat the trailing exit and no-exit ablation as separate candidates.
+4. Shadow surviving candidate versions before considering a production
    change.
