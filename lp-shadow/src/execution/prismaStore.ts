@@ -65,6 +65,24 @@ export class PrismaExecutionStore implements ExecutionStore {
     return row ? intentDto(row) : null;
   }
 
+  async isPermanentInitialPosition(
+    projectWalletId: string,
+    positionAddress: string,
+  ): Promise<boolean> {
+    const row = await this.db.executionIntent.findFirst({
+      where: {
+        projectWalletId,
+        action: 'OPEN_POSITION',
+        AND: [
+          { detailJson: { path: ['positionAddress'], equals: positionAddress } },
+          { detailJson: { path: ['positionRole'], equals: 'PERMANENT_INITIAL' } },
+        ],
+      },
+      select: { id: true },
+    });
+    return row !== null;
+  }
+
   async createIntent(request: ExecutionRequest): Promise<StoredIntent> {
     const row = await this.db.executionIntent.create({
       data: {

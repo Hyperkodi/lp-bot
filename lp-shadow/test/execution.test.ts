@@ -187,6 +187,7 @@ class MemoryStore implements ExecutionStore {
   globalRollingSol = 0;
   status = '';
   outcomes = 0;
+  permanentInitialPositions = new Set<string>();
 
   async isKillSwitchEnabled() {
     this.events.push('kill-switch');
@@ -202,6 +203,10 @@ class MemoryStore implements ExecutionStore {
   async findIntent(_idempotencyKey: string) {
     this.events.push('find-intent');
     return this.intent;
+  }
+  async isPermanentInitialPosition(_projectWalletId: string, positionAddress: string) {
+    this.events.push(`position-role:${positionAddress}`);
+    return this.permanentInitialPositions.has(positionAddress);
   }
   async createIntent(request: ExecutionRequest) {
     this.events.push('create-intent');
@@ -329,6 +334,25 @@ describe('execution pipeline ordering', () => {
     store.killed = true;
     await expect(pipeline.execute(request())).rejects.toThrow(/kill switch/i);
     expect(store.events).toEqual(['kill-switch']);
+  });
+
+  it('blocks management of a recorded permanent initial position even when the caller omits its role', async () => {
+    const { store, pipeline } = harness();
+    store.permanentInitialPositions.add('permanent-position');
+    await expect(pipeline.execute({
+      ...request(),
+      detail: {
+        positionAddress: 'permanent-position',
+        initiatedBy: 'SYSTEM',
+      },
+    })).rejects.toThrow(/permanent initial liquidity forbids/i);
+    expect(store.events).toEqual([
+      'kill-switch',
+      'lock',
+      'position-role:permanent-position',
+    ]);
+    expect(store.events).not.toContain('create-intent');
+    expect(store.events).not.toContain('build');
   });
 
   it('never signs or sends a failed simulation', async () => {

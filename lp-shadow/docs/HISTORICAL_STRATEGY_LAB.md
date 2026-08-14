@@ -194,6 +194,10 @@ allows that role to open, but rejects system compounding, rebalancing, exit,
 fee settlement, and withdrawal. A withdrawal is accepted only when explicitly
 marked as founder-initiated. Legacy actively managed positions keep their
 existing behavior; later liquidity must use a separate position role.
+The execution store also resolves that role from the original recorded
+`OPEN_POSITION` intent by position address. This prevents a later caller from
+bypassing the policy simply by omitting or relabeling the role on a compound,
+rebalance, exit, fee-settlement, or position-withdrawal request.
 
 The comparison models buyer depth contributed by this initial position only.
 If buyer size is unknown, omit both buyer flags. The planner then reports the

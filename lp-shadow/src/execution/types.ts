@@ -64,6 +64,8 @@ export interface ExecutionStore {
     work: (lockedStore: ExecutionStore) => Promise<T>,
   ): Promise<T>;
   findIntent(idempotencyKey: string): Promise<StoredIntent | null>;
+  /** Durable role lookup from previously recorded OPEN_POSITION intents. */
+  isPermanentInitialPosition(projectWalletId: string, positionAddress: string): Promise<boolean>;
   createIntent(request: ExecutionRequest): Promise<StoredIntent>;
   rollingNotionalSol(
     projectWalletId: string,

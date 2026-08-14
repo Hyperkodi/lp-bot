@@ -1,5 +1,6 @@
 import type { Transaction, VersionedTransaction } from '@solana/web3.js';
 import { inspectTransaction } from './inspect.js';
+import { enforcePositionPolicy, PERMANENT_INITIAL_POSITION_ROLE } from './initialLiquidityPolicy.js';
 import type {
   BuiltExecution,
   ChainState,
@@ -75,6 +76,7 @@ export class ExecutionPipeline {
     if (!Number.isFinite(request.notionalSol) || request.notionalSol < 0) {
       throw new Error('execution notional must be finite and non-negative');
     }
+    await this.enforceDurablePositionPolicy(store, request);
     let intent = await store.findIntent(request.idempotencyKey);
     let recoveryState: ChainState | null = null;
     if (intent) {
@@ -99,6 +101,24 @@ export class ExecutionPipeline {
     await this.inspectBuilt(request, built);
     await this.checkCaps(store, request, intent.id, built);
     return this.runBuilt(store, request, intent, built);
+  }
+
+  private async enforceDurablePositionPolicy(
+    store: ExecutionStore,
+    request: ExecutionRequest,
+  ): Promise<void> {
+    const detail = request.detail ?? {};
+    enforcePositionPolicy(request.action, detail);
+    const candidates = [detail.oldPositionAddress, detail.positionAddress]
+      .filter((value): value is string => typeof value === 'string' && value.length > 0);
+    for (const positionAddress of new Set(candidates)) {
+      if (await store.isPermanentInitialPosition(request.projectWalletId, positionAddress)) {
+        enforcePositionPolicy(request.action, {
+          ...detail,
+          positionRole: PERMANENT_INITIAL_POSITION_ROLE,
+        });
+      }
+    }
   }
 
   private assertBuilder(request: ExecutionRequest) {
