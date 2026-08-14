@@ -2,10 +2,11 @@
 
 A read-only "shadow mode" agent for one Meteora DLMM pool on Solana. It runs the
 full decision loop of a concentrated-liquidity LP strategy — polling pool state,
-computing signals, deciding `HOLD / COMPOUND / REBALANCE / EXIT` — and **never
-signs or sends a transaction**. Every decision is logged with its reasoning and a
-live cost estimate, and a virtual position is simulated so the strategy's P&L can
-be scored against benchmarks.
+computing signals, deciding `HOLD / COMPOUND / REBALANCE / EXIT` — without the
+shadow loop signing or sending transactions. Every decision is logged with its
+reasoning and a live cost estimate, and a virtual position is simulated so the
+strategy's P&L can be scored against benchmarks. A separately gated custodial
+execution harness exists for devnet integration testing only.
 
 The output of Phase 1 is **evidence**, not yield: does this strategy beat just
 holding the tokens, net of realistic costs?
@@ -16,16 +17,17 @@ net = fees_earned − (HODL_value − LP_value) − rebalance_costs
 
 Fee APR alone is not the objective. Time-in-range alone is not the objective.
 
-## No keys, by construction
+## No plaintext keys in application configuration
 
-There is no wallet, keypair, mnemonic, or signing code anywhere in this repo —
-not even behind a flag. Three things keep it that way:
+Application configuration accepts no private key, keypair, or mnemonic. The
+separate devnet custody path stores encrypted envelope material and retrieves
+signing material only through its custody boundary. Safety controls include:
 
-- `.env.example` has no key variable, and `src/config.ts` would reject one.
-- ESLint fails the build on any import of `keypair`, `bip39`, `ed25519-hd-key`,
-  or `@solana/wallet-*` (`eslint.config.js`).
-- The only Jupiter endpoint called is `/quote`. `/swap`, which builds a
-  transaction, is never called.
+- `.env.example` has no plaintext-key variable.
+- Signed execution is hard-limited to RPC endpoints identifying devnet.
+- Transactions are inspected, simulated, capped, and durably recorded before
+  sending; the permanent initial position has a separate no-management policy.
+- The only Jupiter endpoint called is `/quote`; `/swap` is never called.
 
 ## Architecture
 
@@ -115,10 +117,16 @@ curl -s 'https://dlmm.datapi.meteora.ag/pools?search=SOL-USDC&sort_key=tvl&order
 | `pnpm lint` | ESLint, including the purity boundary rule |
 | `pnpm strategy:lab` | deterministic synthetic profile stress suite |
 | `pnpm strategy:historical` | read-only six-launch Meteora replay plus current Jupiter quote validation |
+| `pnpm strategy:plan -- --token 10000000 --token-decimals 6 --sol 132 --supply 1000000000 --sol-price 75.89 --bin-step 50 --fee-bps 30 --shape SPOT --bins 69` | build the detailed read-only initial-liquidity plan |
+| `pnpm devnet:presets` | discover and verify public-devnet Standard-pool presets without a signer |
+| `pnpm launch:mint -- <mint> <founder-address> <decimals> <supply>` | read and screen a devnet token mint without a signer |
 | `pnpm replay --from 2026-08-01 --params ./config/sweep.toml [--pool <id>]` | re-run the engine over one pool's stored snapshots with alternate params |
 | `pnpm strategy:lab [-- --json]` | compare all three complete profiles across deterministic stress scenarios; synthetic results are not launch approval |
 | `pnpm report --print-only [--pool <id>]` | build the daily report on demand |
 | `pnpm exec tsx scripts/seed-synthetic.ts --hours 48 --wipe` | fill a scratch database with synthetic snapshots to smoke-test the pipeline |
+
+Current initial-liquidity decisions, modeled trade-offs, and blockers are in
+[`docs/INITIAL_LIQUIDITY_READINESS.md`](docs/INITIAL_LIQUIDITY_READINESS.md).
 
 ## How the strategy decides
 
