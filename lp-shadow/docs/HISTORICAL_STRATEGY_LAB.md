@@ -1,96 +1,117 @@
 # Historical strategy lab
 
-Run the read-only historical and live-quote validation with:
+Run the read-only evaluation with:
 
 ```powershell
 pnpm strategy:historical
 ```
 
-The command fetches the first 72 hours of 5-minute OHLCV directly from
-Meteora for six recent SOL-quoted launch pools, replays the three profiles, and
-then requests current quote-to-base Jupiter quotes for $100, $500, and $1,000.
-It never calls Jupiter's transaction-building endpoint and never signs or sends
-anything.
+The command fetches each fixed pool's first 72 hours of 30-minute OHLCV from
+Meteora, evaluates the three unchanged built-in profiles, selects one Treasury
+Defensive quote-exposure candidate using training launches only, and then
+scores that locked candidate once on holdout. It does not build transactions,
+sign, send, or change a production profile.
 
-## Dataset and split
+## Frozen stress cohort
 
-The fixed manifest prevents a discovery query from silently changing the sample.
+The 24 addresses are frozen in `src/strategy/historicalManifest.ts`. They came
+from repeated creation-ordered scans of non-blacklisted SOL-quoted pools, not a
+current-volume or current-TVL leaderboard. At capture, eligible pools had at
+least 116 of 145 possible first-72-hour candles. Selection deliberately spans
+three observed outcome strata:
 
-| Cohort | Pool | Address | Candles / expected |
-| --- | --- | --- | ---: |
-| Training | TOAD-SOL | `7iyWwX51LwktZoYbwjndBGwX98VYm3pqNRGoZLw1tB3s` | 865 / 865 |
-| Training | STONK-SOL | `48M3tRdbVYmEbf5rCTFVAgqCCaZdChVmeg3VPBrmgT8m` | 865 / 865 |
-| Training | CATE-SOL | `AUaPMKd13d633cXRRrPRfTeL5XRN64ngDWLEfH5zfBML` | 865 / 865 |
-| Holdout | BUTTHOLE-SOL | `EAf6shtt8QGJ7UiSRrDc6pzwXKEmb5s7tCCpSDe5zpzZ` | 864 / 865 |
-| Holdout | XST-SOL | `FXc1BVyNDmqwSKbYD8JwMGq5uqsUov4BCjqnATAeyARk` | 840 / 865 |
-| Holdout | MANLET-SOL | `68C62WPYiiNZxprbuaMj2ULXpiTDKcs5xsX7kBGnyajR` | 861 / 865 |
+| Stratum | Training | Holdout | Captured 72h return range |
+| --- | ---: | ---: | ---: |
+| Crash | 4 | 4 | -96.8% to -77.8% |
+| Middle | 4 | 4 | -70.1% to +11.8% |
+| Winner | 4 | 4 | +51.2% to +3,495.0% |
 
-This is 5,160 observed candles. Training versus holdout is enforced in the
-report, but no parameters were changed from these results.
+This construction prevents a top-pools-only survivor sample and ensures that
+both catastrophic failures and explosive winners are tested. It is deliberately
+stress-stratified, so its averages are not estimates of the broader launch-pool
+population. All launches are still recent SOL-quoted pools, another important
+scope limit.
+
+The capture used 3,389 observed candles. When Meteora later returned no candle
+for an interval after the first trade, the replay inserted 88 explicitly modeled
+flat, zero-volume inactivity candles, producing 3,477 replay candles. It never
+interpolates a price move or invents volume.
 
 ## Evidence boundary
 
-Historical facts:
+Historical observations:
 
 - candle timestamp, open, high, low, close, and volume;
-- pool creation time, token pair, bin step, and base fee.
+- pool creation time, bin step, and base fee.
 
-Explicit proxies where the public historical endpoint has no observation:
+Explicit models where public historical observations are unavailable:
 
-- replay uses candle closes; it does not invent the path between close points;
-- current TVL is held constant and divided across 69 bins because historical
-  TVL and per-bin liquidity are unavailable;
-- fee revenue is candle volume multiplied by the pool's base fee; historical
-  dynamic fees are unavailable;
-- rebalance swaps use a conservative 50 bps impact input because historical
-  Jupiter routes cannot be reconstructed.
+- every pool uses the same $100,000 modeled TVL, divided over 69 virtual bins;
+- fee revenue is candle volume multiplied by the pool base fee;
+- omitted intervals after the first observation use the previous close and zero
+  volume;
+- rebalance swaps use a 50 bps impact input;
+- only 30-minute closes are replayed, not intracandle paths.
 
-For those reasons, fee dollars, rebalance counts, and absolute net returns are
-model-assisted historical results, not audited performance.
+Historical TVL, per-bin liquidity, dynamic fees, and Jupiter routes are not
+available. Absolute fee dollars, execution costs, and net returns therefore
+remain model-assisted results rather than audited performance.
 
-## Results captured 2026-08-14 00:30 UTC
+## Built-in profile results
+
+Captured 2026-08-14 UTC:
 
 | Cohort | Profile | Average net vs HODL | Average max drawdown | Average rebalances |
 | --- | --- | ---: | ---: | ---: |
-| Training | Fee Maximizer | -$7,946 | 78.9% | 24.7 |
-| Training | Market Depth | -$5,428 | 60.5% | 2.7 |
-| Training | Treasury Defensive | +$299 | 30.0% | 0.0 |
-| Holdout | Fee Maximizer | -$3,166 | 49.3% | 12.7 |
-| Holdout | Market Depth | -$2,147 | 44.3% | 2.3 |
-| Holdout | Treasury Defensive | -$217 | 34.5% | 0.3 |
+| Training | Fee Maximizer | -$1,681 | 38.5% | 0.0 |
+| Training | Market Depth | -$1,622 | 38.9% | 0.0 |
+| Training | Treasury Defensive (15%) | -$1,220 | 34.3% | 0.4 |
+| Holdout | Fee Maximizer | -$20,012 | 37.5% | 0.0 |
+| Holdout | Market Depth | -$19,998 | 38.2% | 0.0 |
+| Holdout | Treasury Defensive (15%) | -$19,018 | 34.0% | 0.4 |
 
-The conclusions are narrow but useful:
+The holdout means are dominated by STONK's roughly 35x first-72-hour move. That
+is why parameter selection uses median and worst-launch outcomes before mean.
+Drawdown is a strategy-NAV statistic, not benchmark regret: a strategy can rise
+monotonically and still lag HODL badly in an explosive winner.
 
-- Fee Maximizer is still much too active for launch conditions and is not a
-  production candidate in its current form.
-- Market Depth remains materially behind HODL in both cohorts. A wide range is
-  not enough to establish good execution quality.
-- Treasury Defensive generalizes directionally to the holdout set and sharply
-  reduces the HODL gap, but it still loses $217 on average there. This does not
-  validate the provisional 15% quote-exposure setting.
-- Six launches are far too few for production selection, particularly because
-  all are recent SOL-quoted meme-token launches.
+## Training-only parameter lock
 
-## Current Jupiter cross-check
+The sweep changes only Treasury Defensive's deployed quote share. Deployed base
+remains 50%; undeployed quote remains in reserve.
 
-At capture time, Jupiter used the exact studied pool for all tested TOAD,
-STONK, and XST order sizes; for BUTTHOLE it used the exact pool at all sizes,
-including a split Meteora route at $1,000. CATE routed through Pump.fun rather
-than the studied pool. MANLET used other liquidity at $100 and $500 and the
-studied pool at $1,000.
+| Deployed quote | Training median net vs HODL | Training average | Training worst | Average max drawdown |
+| ---: | ---: | ---: | ---: | ---: |
+| 0% | -$273 | -$1,059 | -$5,781 | 31.8% |
+| 5% | -$275 | -$1,073 | -$5,780 | 32.6% |
+| 10% | -$313 | -$1,146 | -$5,779 | 33.4% |
+| 15% | -$344 | -$1,220 | -$5,773 | 34.3% |
+| 20% | -$375 | -$1,291 | -$5,772 | 35.3% |
+| 30% | -$451 | -$1,423 | -$5,719 | 37.3% |
+| 50% | -$628 | -$1,684 | -$5,730 | 40.8% |
 
-Jupiter's reported price impact for exact-pool quotes ranged from 0.000% to
-0.466% in that single live sample. These quotes are current and ephemeral—not
-historical—and an exact-pool `no` says nothing about the studied pool's depth.
-The script checks Jupiter's AMM address, not just the human-readable route label.
+Ranking is deterministic: highest training median net versus HODL, then best
+worst launch, lowest average drawdown, highest mean, fewest rebalances, and
+lower quote exposure. Under that predeclared ordering, the training set locked
+the 0% candidate before holdout was evaluated.
+
+| Locked candidate | Holdout median net vs HODL | Holdout average | Holdout worst | Average max drawdown |
+| --- | ---: | ---: | ---: | ---: |
+| 0% deployed quote | -$155 | -$18,597 | -$223,934 | 30.1% |
+
+This is rejection evidence, not a production recommendation. Zero deployed
+quote is effectively a capital-preservation control, and it still trails HODL
+on the median holdout launch. The built-in 15% Treasury Defensive profile is
+unchanged.
 
 ## Next evidence step
 
-1. Expand to dozens of launches covering different liquidity, volatility, and
-   outcome regimes.
-2. Capture live full-bin pool state alongside repeated exact-pool Jupiter
-   quotes so buyer-depth predictions can be calibrated instead of compared to a
-   single quote snapshot.
-3. Sweep parameters only on training launches, lock candidates, and score them
-   once on holdout launches.
-4. Shadow the surviving candidate versions before any production decision.
+1. Repeat the frozen-cohort method across older launch periods and non-SOL quote
+   assets so one market window cannot dominate the conclusion.
+2. Capture live full-bin state and exact-pool Jupiter quotes repeatedly to
+   replace modeled TVL, liquidity, and impact with observed execution evidence.
+3. Test structurally different policies, including delayed entry, one-sided
+   inventory, and explicit exit rules; quote-exposure tuning alone did not find
+   a viable LP candidate.
+4. Shadow any surviving candidate version before considering a production
+   change.

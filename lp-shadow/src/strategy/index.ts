@@ -25,7 +25,16 @@ export {
   type StrategyScenario,
 } from './lab.js';
 export {
+  fillOhlcvGaps,
   historicalScenarioFromOhlcv,
   type HistoricalProxyAssumptions,
   type HistoricalScenario,
 } from './historical.js';
+export {
+  evaluateTreasuryCandidate,
+  lockTreasuryCandidate,
+  selectTreasuryCandidate,
+  treasuryQuoteCandidates,
+  type TreasuryCandidateScore,
+  type TreasuryQuoteCandidate,
+} from './tuning.js';

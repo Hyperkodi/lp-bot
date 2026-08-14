@@ -4,7 +4,8 @@ const fetchJson = vi.fn();
 vi.mock('../src/poller/http.js', () => ({ fetchJson: (...args: unknown[]) => fetchJson(...args) }));
 
 const { fetchPoolOhlcv, fetchPoolOhlcvRange, fetchPoolStats } = await import('../src/poller/meteoraApi.js');
-const { historicalScenarioFromOhlcv } = await import('../src/strategy/historical.js');
+const { fillOhlcvGaps, historicalScenarioFromOhlcv } = await import('../src/strategy/historical.js');
+const { HISTORICAL_LAUNCHES } = await import('../src/strategy/historicalManifest.js');
 
 afterEach(() => fetchJson.mockReset());
 
@@ -55,6 +56,15 @@ describe('Meteora historical data boundary', () => {
 });
 
 describe('historical replay conversion', () => {
+  it('fills inactive intervals after the first trade with a flat zero-volume candle', () => {
+    expect(fillOhlcvGaps([candle(0, 2, 10), candle(600, 3, 20)], 0, 900, 300)).toEqual([
+      candle(0, 2, 10),
+      candle(300, 2, 0),
+      candle(600, 3, 20),
+      candle(900, 3, 0),
+    ]);
+  });
+
   it('preserves historical returns and volume while labeling unavailable inputs as proxies', () => {
     const candles = Array.from({ length: 21 }, (_, index) =>
       candle(index * 300, 1 + index / 100, 100 + index),
@@ -64,7 +74,7 @@ describe('historical replay conversion', () => {
       candles,
       { binStepBps: 50 },
       {
-        currentTvlUsd: 69_000,
+        modeledTvlUsd: 69_000,
         baseFeePct: 0.3,
         virtualRangeBins: 69,
         swapFallbackImpactBps: 50,
@@ -77,8 +87,19 @@ describe('historical replay conversion', () => {
     expect(scenario.snapshots[0]!.snapshot.liqActiveBin).toBe(1_000);
     expect(scenario.snapshots[0]!.snapshot.poolFeesIntervalUsd).toBeCloseTo(0.3, 8);
     expect(scenario.limitations).toEqual(expect.arrayContaining([
-      expect.stringMatching(/current TVL/i),
+      expect.stringMatching(/modeled TVL/i),
       expect.stringMatching(/historical Jupiter/i),
     ]));
+  });
+
+  it('freezes a unique, balanced 24-launch stress cohort', () => {
+    expect(HISTORICAL_LAUNCHES).toHaveLength(24);
+    expect(new Set(HISTORICAL_LAUNCHES.map((launch) => launch.address)).size).toBe(24);
+    for (const stratum of ['CRASH', 'MIDDLE', 'WINNER']) {
+      const rows = HISTORICAL_LAUNCHES.filter((launch) => launch.stratum === stratum);
+      expect(rows).toHaveLength(8);
+      expect(rows.filter((launch) => launch.cohort === 'TRAINING')).toHaveLength(4);
+      expect(rows.filter((launch) => launch.cohort === 'HOLDOUT')).toHaveLength(4);
+    }
   });
 });

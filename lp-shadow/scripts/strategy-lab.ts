@@ -34,9 +34,9 @@ if (process.argv.includes('--json')) {
   process.stdout.write('\nBuyer experience (10% of initial strategy NAV, strategy-owned bins only):\n');
   printBuyerResults(results);
   process.stdout.write('\nKnown evidence gaps:\n');
-  process.stdout.write('- Historical launch snapshots have not been supplied yet.\n');
+  process.stdout.write('- This synthetic suite is engineering-only; run strategy:historical for launch evidence.\n');
   process.stdout.write('- Buyer depth excludes other LPs, swap fees, routing, and market reaction.\n');
-  process.stdout.write('- Treasury Defensive\'s 15% quote exposure is an initial value, not a production recommendation.\n');
+  process.stdout.write('- Treasury Defensive\'s unchanged 15% quote exposure is not a production recommendation.\n');
   process.stdout.write('- Re-binning isolates bin-step behavior but assumes unchanged fees, volume, and outside liquidity.\n');
   process.stdout.write('\nNo winning profile is selected from synthetic data.\n');
 }

@@ -3,7 +3,7 @@ import type { OhlcvCandle, PoolStats } from '../poller/meteoraApi.js';
 import type { StrategyScenario } from './lab.js';
 
 export type HistoricalProxyAssumptions = {
-  currentTvlUsd: number;
+  modeledTvlUsd: number;
   baseFeePct: number;
   virtualRangeBins: number;
   swapFallbackImpactBps: number;
@@ -13,6 +13,49 @@ export type HistoricalScenario = StrategyScenario & {
   evidence: 'HISTORICAL';
   limitations: string[];
 };
+
+/**
+ * Meteora omits some inactive intervals. After the first observed candle,
+ * represent an omitted interval as no trade: unchanged close and zero volume.
+ */
+export function fillOhlcvGaps(
+  candles: OhlcvCandle[],
+  startTimeSec: number,
+  endTimeSec: number,
+  stepSec: number,
+): OhlcvCandle[] {
+  if (
+    candles.length === 0 ||
+    !Number.isInteger(startTimeSec) ||
+    !Number.isInteger(endTimeSec) ||
+    !Number.isInteger(stepSec) ||
+    stepSec <= 0 ||
+    endTimeSec < startTimeSec
+  ) {
+    throw new Error('OHLCV gap fill requires candles and a valid bounded interval');
+  }
+  const observed = new Map(candles.map((candle) => [candle.timestamp, candle]));
+  let previous: OhlcvCandle | undefined;
+  const filled: OhlcvCandle[] = [];
+  for (let timestamp = startTimeSec; timestamp <= endTimeSec; timestamp += stepSec) {
+    const current = observed.get(timestamp);
+    if (current) {
+      previous = current;
+      filled.push(current);
+    } else if (previous) {
+      filled.push({
+        timestamp,
+        open: previous.close,
+        high: previous.close,
+        low: previous.close,
+        close: previous.close,
+        volume: 0,
+      });
+    }
+  }
+  if (filled.length === 0) throw new Error('OHLCV gap fill found no candle inside the interval');
+  return filled;
+}
 
 export function historicalScenarioFromOhlcv(
   name: string,
@@ -28,7 +71,7 @@ export function historicalScenarioFromOhlcv(
     throw new Error('historical replay requires positive price and bin step');
   }
   if (
-    !(assumptions.currentTvlUsd > 0) ||
+    !(assumptions.modeledTvlUsd > 0) ||
     !(assumptions.virtualRangeBins > 0) ||
     assumptions.baseFeePct < 0
   ) {
@@ -62,9 +105,9 @@ export function historicalScenarioFromOhlcv(
         activePrice,
         binStepBps,
         feeBps: assumptions.baseFeePct * 100,
-        liqActiveBin: assumptions.currentTvlUsd / assumptions.virtualRangeBins,
+        liqActiveBin: assumptions.modeledTvlUsd / assumptions.virtualRangeBins,
         liqNearby: [],
-        poolTvlUsd: assumptions.currentTvlUsd,
+        poolTvlUsd: assumptions.modeledTvlUsd,
         poolVol24hUsd: rolling24hVolume,
         poolFees24hUsd: rolling24hVolume * (assumptions.baseFeePct / 100),
         poolFeesIntervalUsd: candle.volume * (assumptions.baseFeePct / 100),
@@ -79,7 +122,7 @@ export function historicalScenarioFromOhlcv(
     limitations: [
       'Meteora close prices and volumes are historical observations.',
       'Intracandle high/low paths are not replayed.',
-      'Current TVL is held constant because historical TVL and per-bin liquidity are unavailable.',
+      'A fixed modeled TVL is used because historical TVL and per-bin liquidity are unavailable.',
       'Fees use candle volume multiplied by the pool base fee; dynamic fees are unavailable.',
       'Rebalance swaps use the configured impact fallback; historical Jupiter routes are unavailable.',
     ],

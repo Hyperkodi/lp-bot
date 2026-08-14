@@ -1,123 +1,49 @@
 import 'dotenv/config';
 import { loadRawConfig, toParams } from '../src/config.js';
-import { fetchQuote, fetchUsdPrices } from '../src/poller/jupiter.js';
-import {
-  fetchPoolOhlcvRange,
-  fetchPoolStats,
-  type PoolStats,
-} from '../src/poller/meteoraApi.js';
+import { fetchPoolOhlcvRange, fetchPoolStats, type PoolStats } from '../src/poller/meteoraApi.js';
 import { BINS_PER_CLASSIC_POSITION } from '../src/poller/sdkConstants.js';
 import {
   evaluateProfiles,
+  evaluateTreasuryCandidate,
+  fillOhlcvGaps,
   historicalScenarioFromOhlcv,
+  lockTreasuryCandidate,
   type ProfileScenarioResult,
+  type StrategyScenario,
+  type TreasuryCandidateScore,
 } from '../src/strategy/index.js';
+import {
+  HISTORICAL_LAUNCHES,
+  type HistoricalLaunch,
+} from '../src/strategy/historicalManifest.js';
 
-type Cohort = 'TRAINING' | 'HOLDOUT';
-type Launch = { cohort: Cohort; address: string };
+const MODELED_TVL_USD = 100_000;
+const MINIMUM_OBSERVED_CANDLES = 21;
+type LoadedLaunch = HistoricalLaunch & {
+  stats: PoolStats;
+  candles: Awaited<ReturnType<typeof fetchPoolOhlcvRange>>;
+  observedCandles: number;
+};
 
-const LAUNCHES: Launch[] = [
-  { cohort: 'TRAINING', address: '7iyWwX51LwktZoYbwjndBGwX98VYm3pqNRGoZLw1tB3s' },
-  { cohort: 'TRAINING', address: '48M3tRdbVYmEbf5rCTFVAgqCCaZdChVmeg3VPBrmgT8m' },
-  { cohort: 'TRAINING', address: 'AUaPMKd13d633cXRRrPRfTeL5XRN64ngDWLEfH5zfBML' },
-  { cohort: 'HOLDOUT', address: 'EAf6shtt8QGJ7UiSRrDc6pzwXKEmb5s7tCCpSDe5zpzZ' },
-  { cohort: 'HOLDOUT', address: 'FXc1BVyNDmqwSKbYD8JwMGq5uqsUov4BCjqnATAeyARk' },
-  { cohort: 'HOLDOUT', address: '68C62WPYiiNZxprbuaMj2ULXpiTDKcs5xsX7kBGnyajR' },
-];
-
-type LoadedLaunch = Launch & { stats: PoolStats; candles: Awaited<ReturnType<typeof fetchPoolOhlcvRange>> };
-
-function requireMetadata(stats: PoolStats, address: string) {
-  if (
-    !stats.createdAtMs ||
-    !stats.binStepBps ||
-    !stats.tvlUsd ||
-    stats.baseFeePct === undefined ||
-    !stats.baseMint ||
-    stats.baseDecimals === undefined ||
-    !stats.quoteMint ||
-    stats.quoteDecimals === undefined
-  ) {
-    throw new Error(`pool ${address} is missing historical-lab metadata`);
+function requireMetadata(stats: PoolStats, launch: HistoricalLaunch) {
+  if (!stats.binStepBps || stats.baseFeePct === undefined) {
+    throw new Error(`${launch.name} (${launch.address}) is missing bin-step or base-fee metadata`);
   }
 }
 
-async function loadLaunch(launch: Launch): Promise<LoadedLaunch> {
+async function loadLaunch(launch: HistoricalLaunch): Promise<LoadedLaunch> {
   const stats = await fetchPoolStats(launch.address);
-  requireMetadata(stats, launch.address);
-  const start = Math.floor(stats.createdAtMs! / 1_000 / 300) * 300;
+  requireMetadata(stats, launch);
+  const start = Math.floor(launch.createdAtMs / 1_000 / 1_800) * 1_800;
   const end = start + 72 * 60 * 60;
-  const candles = await fetchPoolOhlcvRange(launch.address, '5m', start, end);
-  if (candles.length < 21) throw new Error(`${stats.name ?? launch.address} returned only ${candles.length} candles`);
-  return { ...launch, stats, candles };
-}
-
-function printReplay(rows: ProfileScenarioResult[], loaded: LoadedLaunch[]) {
-  const cohortByScenario = new Map(
-    loaded.map((launch) => [`${launch.stats.name}:${launch.address.slice(0, 6)}`, launch.cohort]),
-  );
-  const columns: [string, (row: ProfileScenarioResult) => string][] = [
-    ['cohort', (row) => cohortByScenario.get(row.scenario) ?? '?'],
-    ['launch', (row) => row.scenario.split(':')[0]!],
-    ['profile', (row) => row.profileSlug],
-    ['net/HODL', (row) => row.replay.netVsHodlUsd.toFixed(0)],
-    ['max DD', (row) => `${(row.replay.maxDrawdownPct * 100).toFixed(1)}%`],
-    ['fees*', (row) => row.replay.totalFeesUsd.toFixed(0)],
-    ['rebal', (row) => String(row.replay.rebalances)],
-    ['base', (row) => `${(row.replay.finalBaseSharePct * 100).toFixed(1)}%`],
-    ['reserve', (row) => `${(row.replay.finalReserveSharePct * 100).toFixed(1)}%`],
-  ];
-  printTable(columns, rows);
-
-  const grouped = new Map<string, ProfileScenarioResult[]>();
-  for (const row of rows) {
-    const key = `${cohortByScenario.get(row.scenario)}:${row.profileSlug}`;
-    grouped.set(key, [...(grouped.get(key) ?? []), row]);
-  }
-  process.stdout.write('\nCohort averages (descriptive only; no parameter selection):\n');
-  for (const [key, group] of grouped) {
-    const average = (get: (row: ProfileScenarioResult) => number) =>
-      group.reduce((sum, row) => sum + get(row), 0) / group.length;
-    process.stdout.write(
-      `${key.padEnd(36)} net/HODL ${average((row) => row.replay.netVsHodlUsd).toFixed(0).padStart(6)} ` +
-      `maxDD ${(average((row) => row.replay.maxDrawdownPct) * 100).toFixed(1).padStart(5)}% ` +
-      `rebal ${average((row) => row.replay.rebalances).toFixed(1).padStart(4)}\n`,
+  const observed = await fetchPoolOhlcvRange(launch.address, '30m', start, end);
+  if (observed.length < MINIMUM_OBSERVED_CANDLES) {
+    throw new Error(
+      `${launch.name} returned ${observed.length}; requires ${MINIMUM_OBSERVED_CANDLES} observed candles`,
     );
   }
-}
-
-async function printLiveQuotes(loaded: LoadedLaunch[]) {
-  const mints = loaded.flatMap(({ stats }) => [stats.baseMint!, stats.quoteMint!]);
-  const prices = await fetchUsdPrices(mints);
-  process.stdout.write('\nLive Jupiter quote cross-check (read-only, current routes; not historical):\n');
-  process.stdout.write(' launch  order  reported impact  exact pool  route\n');
-  process.stdout.write('-------  -----  ---------------  ----------  -----\n');
-  for (const { address, stats } of loaded) {
-    const quoteUsd = prices.get(stats.quoteMint!);
-    if (!(quoteUsd && quoteUsd > 0)) {
-      process.stdout.write(`${(stats.name ?? '?').padStart(7)}  skipped: no current Jupiter quote-token price\n`);
-      continue;
-    }
-    for (const notionalUsd of [100, 500, 1_000]) {
-      try {
-        const quote = await fetchQuote({
-          inputMint: stats.quoteMint!,
-          outputMint: stats.baseMint!,
-          amount: (notionalUsd / quoteUsd) * 10 ** stats.quoteDecimals!,
-          slippageBps: 50,
-        });
-        const impact = quote.priceImpactPct === null ? 'unavailable' : `${(quote.priceImpactPct * 100).toFixed(3)}%`;
-        const exactPool = quote.routeAmmKeys.includes(address) ? 'yes' : 'no';
-        process.stdout.write(
-          `${(stats.name ?? '?').padStart(7)}  ${String(notionalUsd).padStart(5)}  ${impact.padStart(15)}  ${exactPool.padStart(10)}  ${quote.routeLabels.join(' > ')}\n`,
-        );
-      } catch (error) {
-        process.stdout.write(
-          `${(stats.name ?? '?').padStart(7)}  ${String(notionalUsd).padStart(5)}  failed: ${error instanceof Error ? error.message : String(error)}\n`,
-        );
-      }
-    }
-  }
+  const candles = fillOhlcvGaps(observed, start, end, 1_800);
+  return { ...launch, stats, candles, observedCandles: observed.length };
 }
 
 function printTable<T>(columns: [string, (row: T) => string][], rows: T[]) {
@@ -130,36 +56,104 @@ function printTable<T>(columns: [string, (row: T) => string][], rows: T[]) {
   for (const row of rows) process.stdout.write(`${line(columns.map(([, render]) => render(row)))}\n`);
 }
 
+function printReplay(rows: ProfileScenarioResult[], loaded: LoadedLaunch[]) {
+  const launchByName = new Map(loaded.map((launch) => [launch.name, launch]));
+  printTable([
+    ['cohort', (row) => launchByName.get(row.scenario)?.cohort ?? '?'],
+    ['stratum', (row) => launchByName.get(row.scenario)?.stratum ?? '?'],
+    ['launch', (row) => row.scenario],
+    ['profile', (row) => row.profileSlug],
+    ['net/HODL', (row) => row.replay.netVsHodlUsd.toFixed(0)],
+    ['max DD', (row) => `${(row.replay.maxDrawdownPct * 100).toFixed(1)}%`],
+    ['fees*', (row) => row.replay.totalFeesUsd.toFixed(0)],
+    ['rebal', (row) => String(row.replay.rebalances)],
+    ['reserve', (row) => `${(row.replay.finalReserveSharePct * 100).toFixed(1)}%`],
+  ], rows);
+
+  process.stdout.write('\nCohort averages for the unchanged built-in profiles:\n');
+  for (const cohort of ['TRAINING', 'HOLDOUT'] as const) {
+    for (const profileSlug of ['fee-maximizer', 'market-depth', 'treasury-defensive'] as const) {
+      const group = rows.filter((row) =>
+        launchByName.get(row.scenario)?.cohort === cohort && row.profileSlug === profileSlug,
+      );
+      const average = (get: (row: ProfileScenarioResult) => number) =>
+        group.reduce((sum, row) => sum + get(row), 0) / group.length;
+      process.stdout.write(
+        `${`${cohort}:${profileSlug}`.padEnd(36)} ` +
+        `net/HODL ${average((row) => row.replay.netVsHodlUsd).toFixed(0).padStart(8)} ` +
+        `maxDD ${(average((row) => row.replay.maxDrawdownPct) * 100).toFixed(1).padStart(5)}% ` +
+        `rebal ${average((row) => row.replay.rebalances).toFixed(1).padStart(4)}\n`,
+      );
+    }
+  }
+}
+
+function printTuning(scores: TreasuryCandidateScore[], holdout: TreasuryCandidateScore) {
+  process.stdout.write('\nTraining-only Treasury Defensive quote-exposure sweep:\n');
+  printTable([
+    ['quote', (row) => `${(row.candidate.deployedQuoteShare * 100).toFixed(0)}%`],
+    ['median net/HODL', (row) => row.medianNetVsHodlUsd.toFixed(0)],
+    ['average', (row) => row.averageNetVsHodlUsd.toFixed(0)],
+    ['worst', (row) => row.worstNetVsHodlUsd.toFixed(0)],
+    ['max DD', (row) => `${(row.averageMaxDrawdownPct * 100).toFixed(1)}%`],
+    ['rebal', (row) => row.averageRebalances.toFixed(1)],
+  ], scores);
+  process.stdout.write(
+    `\nLocked ${holdout.candidate.name} before holdout: ` +
+    `holdout median net/HODL ${holdout.medianNetVsHodlUsd.toFixed(0)}, ` +
+    `average ${holdout.averageNetVsHodlUsd.toFixed(0)}, ` +
+    `worst ${holdout.worstNetVsHodlUsd.toFixed(0)}, ` +
+    `average max DD ${(holdout.averageMaxDrawdownPct * 100).toFixed(1)}%.\n`,
+  );
+}
+
 async function main() {
-  process.stdout.write('Historical strategy lab — six real Meteora launch paths\n');
-  process.stdout.write('Fetching each pool\'s first 72 hours of 5-minute OHLCV...\n');
+  process.stdout.write('Historical strategy lab — frozen 24-launch Meteora stress cohort\n');
+  process.stdout.write('Fetching each pool\'s first 72 hours of 30-minute OHLCV...\n');
   const loaded: LoadedLaunch[] = [];
-  for (const launch of LAUNCHES) {
+  for (const launch of HISTORICAL_LAUNCHES) {
     const row = await loadLaunch(launch);
     loaded.push(row);
-    process.stdout.write(`- ${launch.cohort} ${row.stats.name}: ${row.candles.length} candles\n`);
+    process.stdout.write(
+      `- ${launch.cohort.padEnd(8)} ${launch.stratum.padEnd(6)} ${launch.name}: ` +
+      `${row.observedCandles} observed, ${row.candles.length - row.observedCandles} inactive fills\n`,
+    );
   }
 
-  const scenarios = loaded.map(({ address, stats, candles }) => historicalScenarioFromOhlcv(
-    `${stats.name}:${address.slice(0, 6)}`,
+  const scenarios = loaded.map(({ name, stats, candles }) => historicalScenarioFromOhlcv(
+    name,
     candles,
     stats,
     {
-      currentTvlUsd: stats.tvlUsd!,
+      modeledTvlUsd: MODELED_TVL_USD,
       baseFeePct: stats.baseFeePct!,
       virtualRangeBins: BINS_PER_CLASSIC_POSITION - 1,
       swapFallbackImpactBps: 50,
     },
   ));
+  const scenarioByName = new Map(scenarios.map((scenario) => [scenario.name, scenario]));
+  const cohortScenarios = (cohort: HistoricalLaunch['cohort']): StrategyScenario[] =>
+    loaded
+      .filter((launch) => launch.cohort === cohort)
+      .map((launch) => scenarioByName.get(launch.name)!);
   const params = toParams(loadRawConfig('config/default.toml'), BINS_PER_CLASSIC_POSITION);
-  const results = evaluateProfiles(params, scenarios);
-  process.stdout.write('\nHistorical-close replay with explicitly modeled unavailable inputs:\n');
-  printReplay(results, loaded);
-  process.stdout.write('\n* Fee results are proxy estimates: historical volume x base fee, current TVL held constant.\n');
-  process.stdout.write('* Historical per-bin liquidity, dynamic fees, and Jupiter routes are unavailable.\n');
-  process.stdout.write('* Training/holdout labels prevent tuning on every launch, but this six-pool sample is not approval evidence.\n');
-  await printLiveQuotes(loaded);
-  process.stdout.write('\nAn exact-pool "no" means Jupiter found another venue or another pool; it is not evidence about this pool\'s depth.\n');
+
+  process.stdout.write(`\n${loaded.reduce((sum, launch) => sum + launch.candles.length, 0)} historical candles loaded.\n`);
+  process.stdout.write(`Every replay uses the same explicit $${MODELED_TVL_USD.toLocaleString()} modeled TVL.\n\n`);
+  const profileResults = evaluateProfiles(params, scenarios);
+  printReplay(profileResults, loaded);
+
+  const locked = lockTreasuryCandidate(params, cohortScenarios('TRAINING'));
+  const holdout = evaluateTreasuryCandidate(params, cohortScenarios('HOLDOUT'), locked.candidate);
+  printTuning(locked.trainingScores, holdout);
+
+  process.stdout.write('\nEvidence boundary:\n');
+  process.stdout.write('- Prices and volumes are observed Meteora candles; intracandle paths are unavailable.\n');
+  process.stdout.write('- Missing intervals after the first trade are modeled as flat, zero-volume inactivity.\n');
+  process.stdout.write('- Historical TVL, per-bin liquidity, dynamic fees, and Jupiter routes are unavailable.\n');
+  process.stdout.write('- Fees use volume × base fee; liquidity uses fixed modeled TVL; swaps use 50 bps impact.\n');
+  process.stdout.write('- The stress cohort is outcome-stratified and not a representative population estimate.\n');
+  process.stdout.write('- The locked candidate remains experimental; this command does not change production profiles.\n');
 }
 
 await main();
